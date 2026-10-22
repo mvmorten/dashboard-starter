@@ -1,0 +1,4 @@
+{
+  // Needed for the .NET configurations in launch.json.
+  "recommendations": ["ms-dotnettools.csharp"]
+}
