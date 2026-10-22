@@ -1,0 +1,164 @@
+name: Deploy
+
+# Deploys main to Azure App Service. Called by CI (ci.yml) after every check passes on a
+# push to main, so a broken build never ships. Can also be started by hand from the
+# Actions tab to redeploy the current main without a new commit.
+#
+# One-time Azure and GitHub setup: docs/deploy-azure.md.
+#
+# The order matters:
+#   1. Build the front end and the API, and put the front end in the API's wwwroot.
+#   2. Migrate the database. The API refuses to start if a migration is pending, so the
+#      schema has to be ready before the new code arrives. The old code keeps running
+#      against the new schema for a moment, which is why migrations should only add things.
+#   3. Create or update the API's own login (data access only).
+#   4. Hand the app its connection string, then deploy the code.
+#   5. Check /api/health on the live site.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Lets the job ask GitHub for an OpenID Connect token, which Azure trusts instead of a
+  # stored password (see "Sign in to Azure").
+  id-token: write
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-24.04
+    # Secrets and variables below come from this GitHub environment.
+    environment: demo
+    # Never cancel a deploy halfway: it could leave the firewall rule open or the app
+    # between versions. A newer deploy waits for this one to finish.
+    concurrency:
+      group: deploy-demo
+      cancel-in-progress: false
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+      # Named by infra/main.bicep as <appName>-sql.
+      SQL_SERVER_NAME: ${{ vars.AZURE_WEBAPP_NAME }}-sql
+      SQL_ADMIN_LOGIN: ${{ vars.SQL_ADMIN_LOGIN || 'dashboard_admin' }}
+      APP_DB_USER: ${{ vars.APP_DB_USER || 'dashboard_app' }}
+      DATABASE_NAME: DashboardStarter
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/Web/package-lock.json
+
+      - name: Build the front end
+        working-directory: src/Web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the API, with the front end in wwwroot
+        run: |
+          dotnet publish src/Api --configuration Release --output out/api
+          mkdir -p out/api/wwwroot
+          cp -r src/Web/dist/. out/api/wwwroot/
+          (cd out/api && zip -qr ../api.zip .)
+
+      - name: Build the Db runner
+        run: dotnet build src/Db --configuration Release
+
+      # OpenID Connect: GitHub signs a short-lived token saying "this is a deploy job in
+      # mvmorten/dashboard-starter, environment demo". Azure is set up to trust exactly that
+      # (a federated credential), so no Azure password is stored in GitHub.
+      # This is what the azure/login action does, written out.
+      - name: Sign in to Azure
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          token=$(curl -sSf -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" \
+            --federated-token "$token" --output none
+          az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+
+      # The SQL server only admits Azure services. This runner isn't one, so it gets a
+      # rule for its own IP address for the length of the job ("Close the database firewall"
+      # removes it even if a step fails).
+      - name: Open the database firewall to this runner
+        run: |
+          runner_ip=$(curl -sSf https://api.ipify.org)
+          az sql server firewall-rule create --resource-group "$AZURE_RESOURCE_GROUP" \
+            --server "$SQL_SERVER_NAME" --name "github-actions-$GITHUB_RUN_ID" \
+            --start-ip-address "$runner_ip" --end-ip-address "$runner_ip" --output none
+
+      # Retried because two things can make the first attempt fail: the firewall rule can
+      # take a moment to apply, and a paused serverless database takes up to a minute to
+      # wake up. Both are safe to retry: migrate skips anything already applied.
+      - name: Migrate the database
+        env:
+          DOTNET_ENVIRONMENT: Production
+          ConnectionStrings__Default: Server=tcp:${{ env.SQL_SERVER_NAME }}.database.windows.net,1433;Database=${{ env.DATABASE_NAME }};User Id=${{ env.SQL_ADMIN_LOGIN }};Password=${{ secrets.SQL_ADMIN_PASSWORD }};Encrypt=True;TrustServerCertificate=False;Connect Timeout=60
+        run: |
+          for attempt in 1 2 3 4; do
+            if dotnet run --no-build --configuration Release --project src/Db -- migrate; then
+              exit 0
+            fi
+            echo "Attempt $attempt failed. Waiting 30 seconds before trying again."
+            sleep 30
+          done
+          exit 1
+
+      - name: Create or update the API's login
+        env:
+          DOTNET_ENVIRONMENT: Production
+          ConnectionStrings__Default: Server=tcp:${{ env.SQL_SERVER_NAME }}.database.windows.net,1433;Database=${{ env.DATABASE_NAME }};User Id=${{ env.SQL_ADMIN_LOGIN }};Password=${{ secrets.SQL_ADMIN_PASSWORD }};Encrypt=True;TrustServerCertificate=False;Connect Timeout=60
+          APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
+        run: dotnet run --no-build --configuration Release --project src/Db -- app-user
+
+      - name: Close the database firewall
+        if: always()
+        run: |
+          az sql server firewall-rule delete --resource-group "$AZURE_RESOURCE_GROUP" \
+            --server "$SQL_SERVER_NAME" --name "github-actions-$GITHUB_RUN_ID" --output none || true
+
+      # App settings become environment variables in the app. Set on every deploy so the
+      # GitHub secrets stay the one place these values live. --output none keeps the values
+      # out of the log (az would otherwise print every setting back).
+      - name: Configure the app
+        env:
+          CONNECTION_STRING: Server=tcp:${{ env.SQL_SERVER_NAME }}.database.windows.net,1433;Database=${{ env.DATABASE_NAME }};User Id=${{ env.APP_DB_USER }};Password=${{ secrets.APP_DB_PASSWORD }};Encrypt=True;TrustServerCertificate=False;Connect Timeout=60
+          CANONICAL_HOST: ${{ vars.CANONICAL_HOST }}
+        run: |
+          az webapp config appsettings set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
+            --settings "ConnectionStrings__Default=$CONNECTION_STRING" "CanonicalHost=$CANONICAL_HOST" \
+            --output none
+
+      - name: Deploy the code
+        run: |
+          az webapp deploy --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
+            --src-path out/api.zip --type zip --output none
+
+      # Checked on the app's default host name: /api/health is never redirected to the
+      # canonical host, so this works before and after a custom domain is set up.
+      - name: Check the live site
+        run: |
+          host=$(az webapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
+            --query defaultHostName --output tsv)
+          for attempt in $(seq 1 30); do
+            if curl -sf "https://$host/api/health" -o health.json && grep -q '"status":"Healthy"' health.json; then
+              echo "Healthy: https://$host"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "The site didn't report healthy within 5 minutes."
+          az webapp log tail --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" --timeout 30 || true
+          exit 1

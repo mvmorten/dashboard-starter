@@ -19,14 +19,14 @@ An opinionated, open-source dashboard starter: React + TypeScript, ASP.NET Core,
 
 ## Stack
 
-- **Front end:** React + TypeScript, Vite. Library choices beyond that (UI kit, grid, data fetching, router) are decided in step 3; don't add them before then.
+- **Front end:** React + TypeScript, Vite. Library choices beyond that (UI kit, grid, data fetching, router) are decided in the app shell step (step 4); don't add them before then.
 - **API:** ASP.NET Core Web API with **controllers**, current .NET LTS.
 - **Database:** SQL Server, one shared database for all tenants.
 - **Data access:** Dapper, hand-written SQL inline in C#.
 - **Schema:** idempotent SQL scripts in `/sql`, applied by `src/Db`.
 - **Auth:** own user tables, Argon2id hashing, ASP.NET Core cookie authentication.
 - **Local dev:** Docker Compose runs SQL Server only. API and front end run natively.
-- **CI:** GitHub Actions.
+- **CI and deploy:** GitHub Actions. Hosting: Azure App Service + Azure SQL (see "Deployment").
 
 ## Code conventions
 
@@ -86,9 +86,18 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 
 - Every migration checks before it changes (`IF NOT EXISTS`, `IF COL_LENGTH(...) IS NULL`, `IF OBJECT_ID(...) IS NULL`).
 - To change something a migration already did, write a new migration.
-- Apply with `dotnet run --project src/Db -- migrate`; seed with `dotnet run --project src/Db -- seed`.
+- Apply with `dotnet run --project src/Db -- migrate`; seed with `dotnet run --project src/Db -- seed`; create or update the API's login with `dotnet run --project src/Db -- app-user`.
 - The runner journals migrations in `SchemaVersions` (file name, content hash, applied at), skips applied ones, and fails if an applied migration's hash changed.
 - **The API never changes the schema.** At startup it only checks that no migrations are pending and refuses to start with a clear message naming the command to run.
+
+## Deployment
+
+- Azure App Service (Linux) runs the API and serves the React build from `wwwroot`; Azure SQL holds the data. Resources are defined in `infra/main.bicep`; the one-time setup is in `docs/deploy-azure.md`.
+- `.github/workflows/deploy.yml` deploys `main` after CI passes: build, `migrate`, `app-user`, set app settings, zip deploy, health check. Order matters: migrate before deploying code.
+- The deploy runs `migrate` **before** the new code starts, so the old code briefly runs against the new schema. Migrations must only add (new tables, nullable or defaulted columns). Removing or renaming something takes two deploys: stop using it, then drop it.
+- The API connects as its own login in the `app_runtime` role (data only, no DDL). Only the Db runner uses the admin login. Never give the API's login schema rights.
+- No Azure-specific code in the app. Configuration comes from environment variables (`ConnectionStrings__Default`, `CanonicalHost`).
+- Secrets live in the GitHub `demo` environment and App Service settings, never in the repo or the Bicep file. Bicep must not set app settings: it would replace the whole set and wipe the connection string.
 
 ## Security rules
 

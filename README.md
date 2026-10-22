@@ -32,7 +32,8 @@ This repo aims to be:
 | Multi-tenancy | `TenantId` on every tenant-owned table, backed by SQL Server Row-Level Security |
 | Auth | Our own user tables, Argon2id password hashing, ASP.NET Core cookie authentication |
 | Local dev | Docker Compose runs SQL Server only; the API and front end run natively |
-| CI | GitHub Actions for build, test, and lint |
+| CI and deploy | GitHub Actions: build, lint, and schema checks on every pull request; deploy on every merge to `main` |
+| Hosting | Azure App Service (Linux) serving the API and the React build, Azure SQL Database, both created from Bicep in `/infra` |
 
 ## Multi-tenancy
 
@@ -140,7 +141,7 @@ The goal is the 80% every dashboard app needs on day one:
 - [ ] Dashboard home with sample KPI cards and charts
 - [ ] Error handling, logging, and health checks
 - [ ] Automated tests for API and UI
-- [ ] CI pipeline and a documented deployment path
+- [x] CI pipeline and a documented deployment path, with a live demo deployed on every merge
 
 ## How we work
 
@@ -165,7 +166,8 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 | --- | --- | --- | --- |
 | 1 | [Why build another dashboard starter?](https://mvmorten.com/projects/dashboard-starter/why-another-dashboard-starter) | [v0.1](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.1) | Published |
 | 2 | [No magic: repo structure and local dev setup](https://mvmorten.com/projects/dashboard-starter/no-magic) | [v0.2](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.2) | Published |
-| 3 | The app shell | v0.3 | Planned |
+| 3 | Shipping it: deploying to Azure | v0.3 | In progress |
+| 4 | The app shell | v0.4 | Planned |
 | ... | More to come | | |
 
 ## Getting started
@@ -234,10 +236,11 @@ For the API you can use a user secret instead: `dotnet user-secrets set "Connect
 
 ```
 /sql                 schema scripts (see "Schema scripts" above)
-/src/Db              the migration runner: `migrate` and `seed`
+/src/Db              the migration runner: `migrate`, `seed`, and `app-user`
 /src/Api             ASP.NET Core Web API (controllers)
 /src/Web             React + TypeScript front end (Vite)
-/docs/images         screenshots used in this README
+/infra              Bicep for the Azure resources (see docs/deploy-azure.md)
+/docs                deployment guide, and screenshots used in this README
 /.vscode             launch configurations for VS Code (optional)
 docker-compose.yml   SQL Server for local development
 ```
@@ -253,6 +256,10 @@ npm run lint                 # ESLint
 npm run format:check         # Prettier (npm run format to fix)
 npm run build                # type-check and build
 ```
+
+### Deploying
+
+Every merge to `main` deploys to Azure once CI passes: the React build is served by the API from one App Service, the database is Azure SQL, and the pipeline runs `migrate` before the new code goes out. The one-time setup (Azure resources from Bicep, passwordless sign-in for GitHub, secrets, and an optional custom domain) is in [docs/deploy-azure.md](docs/deploy-azure.md). Forks skip the deploy until they set it up.
 
 ## FAQ
 
@@ -282,6 +289,12 @@ It's OWASP's first recommendation. It's memory-hard, so each guess costs memory 
 
 **Why doesn't the API run migrations on startup?**
 A database that changes because you started the app is hidden behavior. You run the migrate command on purpose, and you see exactly which scripts it applied.
+
+**Why does the API have its own database login?**
+So "the API never changes the schema" is enforced by SQL Server, not just promised by our code. The deploy pipeline runs `migrate` with an admin login. The API connects as a separate login in the `app_runtime` role, which can read and write data but can't create, alter, or drop anything. If the API is ever compromised, the attacker gets the same limits. `dotnet run --project src/Db -- app-user` creates or updates that login.
+
+**Why Azure?**
+It's the natural home for a .NET and SQL Server app, and App Service plus Azure SQL means no servers or containers to manage. The app itself has nothing Azure-specific in it: settings come from environment variables, and it runs anywhere .NET and SQL Server do. Azure is the one deployment path we document and test, the same way Docker is the one local setup.
 
 **Why Docker for the database?**
 It's the one setup that works the same on Windows, Mac, and Linux, with the same SQL Server version as CI. Docker only runs the database, so you debug the API and front end normally.

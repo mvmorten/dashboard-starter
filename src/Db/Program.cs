@@ -13,6 +13,7 @@ public static class Program
     Usage:
       dotnet run --project src/Db -- migrate   Create the database if missing, apply new migrations, rerun programmable objects.
       dotnet run --project src/Db -- seed      Load development data from sql/seed (Development only).
+      dotnet run --project src/Db -- app-user  Create or update the API's login (APP_DB_USER, APP_DB_PASSWORD): data access only.
     """;
 
   // SQL Server error 4060: "Cannot open database requested by the login."
@@ -35,6 +36,8 @@ public static class Program
           return await MigrateCommand.RunAsync(settings);
         case "seed":
           return await SeedCommand.RunAsync(settings);
+        case "app-user":
+          return await AppUserCommand.RunAsync(settings);
         default:
           Console.Error.WriteLine($"Unknown command '{args[0]}'.");
           Console.Error.WriteLine(Usage);
