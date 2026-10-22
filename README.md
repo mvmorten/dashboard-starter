@@ -27,7 +27,7 @@ This repo aims to be:
 | Database | SQL Server |
 | Data access | Dapper, with hand-written SQL |
 | Schema changes | Idempotent SQL change scripts, checked into source and safe to re-run |
-| Multi-tenancy | `TenantId` column on every tenant-owned table, from the first script |
+| Multi-tenancy | `TenantId` column on every tenant-owned table from the first script, backed by SQL Server Row-Level Security |
 | Auth | Cookie / token based auth with users, roles, and permissions |
 | Local dev | Docker Compose (SQL Server in a container), one command to run |
 | CI | GitHub Actions for build, test, and lint |
@@ -36,7 +36,7 @@ This repo aims to be:
 
 - **Dapper, not an ORM.** Queries are plain SQL you can read, tune, and run in SSMS.
 - **Every schema change is a script.** Change scripts live in source control, run in order, and are idempotent: each one checks whether its change already exists (`IF NOT EXISTS`, `IF COL_LENGTH(...) IS NULL`, and so on) so running it twice is safe.
-- **Tenant-aware from day one.** Retrofitting tenancy into a live app is painful, so the schema starts with it. Every tenant-owned table carries a `TenantId`, it leads the relevant indexes, and data access always filters by the current tenant. A single default tenant is seeded, so apps that never need more than one tenant can ignore it. SQL Server Row-Level Security is being evaluated as a safety net under the app-level filtering.
+- **Tenant-aware from day one.** Retrofitting tenancy into a live app is painful, so the schema starts with it. Every tenant-owned table carries a `TenantId`, it leads the relevant indexes, and data access always filters by the current tenant. A single default tenant is seeded, so apps that never need more than one tenant can ignore it. Underneath that, SQL Server Row-Level Security acts as a safety net: the API sets the current tenant in `SESSION_CONTEXT` on each connection, and a security policy filters every tenant-owned table, so a query that forgets its `WHERE TenantId = ...` still can't see another tenant's rows.
 
 ## What it will include
 
@@ -57,6 +57,19 @@ The goal is the 80% every dashboard app needs on day one:
 - [ ] Error handling, logging, and health checks
 - [ ] Automated tests for API and UI
 - [ ] CI pipeline and a documented deployment path
+
+## How we work
+
+This repo uses [GitHub flow](https://docs.github.com/en/get-started/using-github/github-flow):
+
+1. Branch off `main` for every change, including docs. Name branches by area or step, such as `step-2/solution-layout` or `docs/readme-fix`.
+2. Open a pull request. The description explains what changed and why, since PRs double as the record behind each blog post.
+3. Once CI exists, its checks must pass before merging.
+4. Squash merge, so `main` gets one clean commit per PR, then delete the branch.
+
+`main` is protected: no direct pushes, no force pushes.
+
+> **Why the change?** The first few commits went straight to `main`. That's normal for a solo project, but this is a starter other people will fork, and whatever workflow it shows is the one they'll pick up. We noticed it early and switched before any real code landed. This PR is the first one under the new rules.
 
 ## Building in public
 
