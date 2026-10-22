@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Builds the .NET solution, then proves the schema workflow against a real SQL Server:
+  # the API refuses to start before migrations, migrate is idempotent, seed reruns cleanly,
+  # the health endpoint answers, and an edited migration is caught.
+  dotnet:
+    name: dotnet
+    runs-on: ubuntu-24.04
+    services:
+      sqlserver:
+        # Same image as docker-compose.yml. Change both together.
+        image: mcr.microsoft.com/mssql/server:2025-CU9-ubuntu-24.04
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_PID: Developer
+          # The same dev-only password as .env.example, so the Db runner and the API
+          # use their built-in Development connection strings unchanged. This container
+          # lives only for this job and isn't reachable from outside it.
+          MSSQL_SA_PASSWORD: LocalDevOnly!ChangeMe1
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $MSSQL_SA_PASSWORD -C -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 20s
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      # Warnings are errors (Directory.Build.props), except NuGet audit warnings,
+      # which still print here so a new advisory is visible on the PR.
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: API refuses to start before migrations
+        run: |
+          set +e
+          timeout 60 dotnet run --no-build --configuration Release --project src/Api
+          code=$?
+          set -e
+          if [ "$code" -ne 1 ]; then
+            echo "Expected the API to exit with code 1, got $code."
+            exit 1
+          fi
+
+      - name: Migrate (first run applies everything)
+        run: dotnet run --no-build --configuration Release --project src/Db -- migrate
+
+      - name: Migrate again (second run skips everything)
+        run: |
+          output=$(dotnet run --no-build --configuration Release --project src/Db -- migrate)
+          echo "$output"
+          echo "$output" | grep -q "Migrations: 0 applied"
+
+      - name: Seed twice
+        run: |
+          dotnet run --no-build --configuration Release --project src/Db -- seed
+          dotnet run --no-build --configuration Release --project src/Db -- seed
+
+      - name: API starts and reports healthy
+        run: |
+          dotnet run --no-build --configuration Release --project src/Api > api.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:5080/api/health -o health.json; then
+              break
+            fi
+            sleep 1
+          done
+          cat api.log
+          cat health.json
+          grep -q '"status":"Healthy"' health.json
+
+      - name: Editing an applied migration makes migrate fail
+        run: |
+          echo "-- edited after it was applied" >> sql/migrations/0001_tenants.sql
+          dotnet build src/Db --configuration Release
+          set +e
+          output=$(dotnet run --no-build --configuration Release --project src/Db -- migrate)
+          code=$?
+          set -e
+          echo "$output"
+          if [ "$code" -ne 1 ]; then
+            echo "Expected migrate to exit with code 1, got $code."
+            exit 1
+          fi
+          echo "$output" | grep -q "edited after it was applied"
+
+  web:
+    name: web
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: src/Web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/Web/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run build

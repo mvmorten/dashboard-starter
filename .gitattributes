@@ -1,0 +1,8 @@
+# Check out every text file with LF line endings, on every OS.
+# Without this, Git on Windows (core.autocrlf=true) converts files to CRLF, which
+# makes `prettier --check` fail and changes the bytes of the SQL migrations.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.jpg binary

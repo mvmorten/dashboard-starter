@@ -97,8 +97,8 @@ Mostly style, written down so contributors know what to expect. Enforced by `.ed
 
 The goal is the 80% every dashboard app needs on day one:
 
-- [ ] Solution layout: front end, API, and database projects in one repo
-- [ ] Local dev environment with Docker Compose and seeded data
+- [x] Solution layout: front end, API, and database projects in one repo
+- [x] Local dev environment with Docker Compose and seeded data
 - [ ] App shell: sidebar navigation, top bar with tenant switcher, responsive layout, light and dark themes
 - [ ] Authentication: sign in, sign out, password reset
 - [ ] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
@@ -141,19 +141,73 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 
 ## Getting started
 
-The first runnable version lands with post 2. The plan:
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) (current LTS), [Node.js](https://nodejs.org/) (current LTS; at least 20.19 or 22.12), and [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
-1. Install the .NET SDK (current LTS), Node.js (current LTS), and Docker Desktop.
-2. Start SQL Server: `docker compose up -d`
-3. Create the schema: `dotnet run --project src/Db -- migrate`, then `dotnet run --project src/Db -- seed` the first time.
-4. Run the API: `dotnet run --project src/Api`
-5. Run the front end: `npm install` then `npm run dev` in `src/Web`
+From the repo root:
 
-**On an Apple Silicon Mac?** SQL Server's container image is built for Intel, so turn on "Use Rosetta for x86_64/amd64 emulation" in Docker Desktop's settings before step 2. It runs a little slower than native, which doesn't matter for development.
+```
+cp .env.example .env                       # local dev settings (gitignored)
+docker compose up -d --wait                # start SQL Server and wait until it's ready
+dotnet run --project src/Db -- migrate     # create the database and schema
+dotnet run --project src/Db -- seed        # add demo data (Development only)
+dotnet run --project src/Api               # API on http://localhost:5080
+```
+
+Then, in a second terminal:
+
+```
+cd src/Web
+npm install
+npm run dev                                # front end on http://localhost:5173
+```
+
+Open <http://localhost:5173>. You should see three green checks: the front end, the API, and the database, with the schema version the database is on.
+
+What just happened:
+
+- **Docker** runs SQL Server 2025 only, on port 1433, with its data in a named volume (`sqlserver-data`) so it survives restarts.
+- **`migrate`** creates the `DashboardStarter` database if it's missing, runs any new scripts in `sql/migrations`, then reruns everything in `sql/programmable`. It prints `applied`, `skipped`, or `failed` for each file. Run it as often as you like; the second run skips everything.
+- **`seed`** adds two demo tenants (Acme Corporation and Globex Industries) and one demo user, `demo@example.com`, who belongs to both. It refuses to run outside Development.
+- **The API** checks at startup that no migrations are pending. If one is, it refuses to start and tells you to run `migrate`. It never changes the schema itself.
+- **The front end** runs on the Vite dev server, which forwards `/api` to the API, so the browser only ever talks to one origin.
+
+**Changed the password in `.env`?** The API and the Db runner use the password from `.env.example` by default. If you change it, give them your connection string as an environment variable:
+
+```
+ConnectionStrings__Default="Server=127.0.0.1,1433;Database=DashboardStarter;User Id=sa;Password=<your password>;Encrypt=True;TrustServerCertificate=True"
+```
+
+For the API you can use a user secret instead: `dotnet user-secrets set "ConnectionStrings:Default" "<connection string>" --project src/Api`.
+
+**Already have a SQL Server?** Set `ConnectionStrings__Default` to point at it and skip Docker. That works, but Docker is the supported path. If something else already uses port 1433, change the port on the left of `"1433:1433"` in `docker-compose.yml` and in your connection string.
+
+**On an Apple Silicon Mac?** SQL Server's container image is built for Intel, so turn on "Use Rosetta for x86_64/amd64 emulation" in Docker Desktop's settings before starting it. It runs a little slower than native, which doesn't matter for development.
 
 **Docker Desktop licensing:** free for personal use, education, and small businesses. Larger companies need a paid subscription, so check before installing it on a work machine.
 
-Already have a SQL Server? Point the connection string at it and skip step 2. That works, but Docker is the supported path.
+**Start over with an empty database:** `docker compose down -v` deletes the container and its volume. Then run the steps again from `docker compose up`.
+
+### Repo layout
+
+```
+/sql                 schema scripts (see "Schema scripts" above)
+/src/Db              the migration runner: `migrate` and `seed`
+/src/Api             ASP.NET Core Web API (controllers)
+/src/Web             React + TypeScript front end (Vite)
+docker-compose.yml   SQL Server for local development
+```
+
+### Checks
+
+The same checks run in CI on every pull request:
+
+```
+dotnet build                 # warnings are errors, including code style from .editorconfig
+cd src/Web
+npm run lint                 # ESLint
+npm run format:check         # Prettier (npm run format to fix)
+npm run build                # type-check and build
+```
 
 ## FAQ
 

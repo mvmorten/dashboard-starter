@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>DashboardStarter.Api</RootNamespace>
+    <AssemblyName>DashboardStarter.Api</AssemblyName>
+    <!-- Lets a developer override the connection string with `dotnet user-secrets` (Development only). -->
+    <UserSecretsId>dashboard-starter-api</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+  </ItemGroup>
+
+  <!--
+    The API references the Db runner for its list of migrations (compiled in from /sql),
+    so the startup check knows exactly which migrations this build expects.
+    It never runs them.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Db\DashboardStarter.Db.csproj" />
+  </ItemGroup>
+
+</Project>
