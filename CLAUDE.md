@@ -43,6 +43,22 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
   - Nullable reference types enabled.
 - **TypeScript / React:** standard Prettier formatting; ESLint with `curly: "all"`.
 
+## Logging
+
+- Built-in `Microsoft.Extensions.Logging` with the console provider. No logging library.
+- Always inject `ILogger<T>` (constructor injection). Not `ILogger`, not `ILoggerFactory`, not `app.Logger`.
+- Message templates with named placeholders, never interpolation: `_logger.LogInformation("Applied {Migration}", name)`, not `$"Applied {name}"`. CA2254 is an error, so the build enforces this.
+- Never log secrets: passwords, connection strings, tokens, cookies, password hashes.
+- Not yet: per-request scopes, JSON output, and a global exception handler come in later steps. Don't add them early.
+- The Db runner is a CLI: its per-file results go to `Console`. That's output, not logging.
+
+## Dependencies
+
+- Prefer what's built in: .NET and ASP.NET Core, browser APIs, React.
+- A library must earn its place through **necessity** (no built-in way), **safety** (closes a security hole), or a **real gain in correctness** (Dapper: hand-written row mapping is error-prone code). Convenience alone isn't enough.
+- Loosely held: a guide for the decision, not a ban on good libraries.
+- Ask before adding any dependency (NuGet or npm, runtime or dev tooling). Justify it in the PR and add a row to the README's Dependencies table. Removing one also updates the table.
+
 ## Database conventions
 
 - **Keys:** `int IDENTITY` on every table; `bigint` only for tables that grow without limit (audit log, events). No public GUID columns.
@@ -82,7 +98,8 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 - Run migrations from the API, from a hosted service, or on startup in any environment.
 - Use `System.Random` or `Guid.NewGuid()` for tokens or secrets.
 - Interpolate values into SQL strings.
-- Add a front-end library or a NuGet package that isn't in the plan without asking first.
+- Add a front-end library, a NuGet package, or dev tooling without asking first (see "Dependencies").
+- Interpolate values into log messages, or log secrets.
 - Commit secrets. Local dev credentials live in `.env` (gitignored) with a committed `.env.example`.
 
 ## Writing style for docs, PRs, and comments

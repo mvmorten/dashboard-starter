@@ -1,0 +1,20 @@
+# Local dev secrets (copy .env.example to .env)
+.env
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Node / Vite
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db

@@ -1,0 +1,25 @@
+<Project>
+  <!--
+    Central package management: every NuGet version is set here, once, so the Db runner
+    and the API can never drift apart. Project files list packages without versions.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Lets a PackageVersion below also raise the version of a package we only get indirectly. -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Dapper" Version="2.1.89" />
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      Security pins for transitive dependencies. Not referenced by any project directly.
+      Remove a pin once the package that pulls it in depends on a patched version itself.
+
+      System.Security.Cryptography.Pkcs: Microsoft.Data.SqlClient 7.1.1 brings in 9.0.18,
+      which has two denial-of-service advisories (CVE-2026-70162, CVE-2026-84008).
+    -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+  </ItemGroup>
+</Project>

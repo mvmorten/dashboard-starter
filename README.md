@@ -44,7 +44,7 @@ This repo aims to be:
 - **Roles are per tenant.** You can be an admin in one tenant and read-only in another (`TenantUserRoles`).
 - **Switching tenants.** With one tenant you go straight in. With several, you land in the one you used last and can switch from the top bar. The auth cookie holds your user and current tenant; switching checks your membership and issues a new cookie.
 - **Removing access works right away.** Memberships can be disabled per tenant, and the API rechecks membership on each request (briefly cached).
-- A single default tenant is seeded, so apps that only ever need one tenant can ignore all of this.
+- The development seed creates two demo tenants and a demo user who belongs to both. A real deployment starts empty: create your first tenant, and if your app only ever needs one, you can ignore the rest.
 
 ## Database conventions
 
@@ -92,13 +92,41 @@ Mostly style, written down so contributors know what to expect. Enforced by `.ed
 - **Brace placement** follows each language's default: own line in C#, same line in TypeScript.
 - **C#:** a classic `Program` class with `Main` (no top-level statements), implicit usings off so every file lists its own `using` lines, file-scoped namespaces, and nullable reference types on.
 - **Front end:** standard Prettier formatting, with ESLint enforcing braces.
+- **Logging:** the built-in `Microsoft.Extensions.Logging` with the console provider. Always inject `ILogger<T>`, so every message is tagged with the class that wrote it. Write message templates with named placeholders, `_logger.LogInformation("Applied {Migration}", name)`, never string interpolation: interpolation loses the named values and builds the string even when that log level is off. The build enforces this (rule CA2254). Never log secrets: passwords, connection strings, tokens, cookies. Per-request scopes, JSON output, and a global exception handler come in later steps. The Db runner is a command-line tool, so it prints its results with `Console` directly; that's output, not logging.
+
+## Dependencies
+
+Every package is code someone else wrote that we have to keep up to date and trust, so the default is what's already there: .NET and ASP.NET Core, the browser's own APIs, and React. A library has to earn its place through **necessity** (there's no built-in way to do it), **safety** (it closes a security hole), or a **real gain in correctness** (Dapper: hand-written row mapping is repetitive, error-prone code). Saving a few lines isn't enough on its own.
+
+It's a principle, loosely held: it guides the decision, it doesn't rule out good libraries. Each new dependency is justified in the pull request that adds it and listed here.
+
+| Package | Where | Why it's here |
+| --- | --- | --- |
+| `Dapper` | API, Db runner | Maps query results to C# objects. Hand-written row mapping (column names as strings, casts, null checks) is repetitive code that breaks quietly. Dapper does only that; the SQL stays ours. |
+| `Microsoft.Data.SqlClient` | API, Db runner | The SQL Server driver. .NET doesn't ship one; this is Microsoft's. |
+| `System.Security.Cryptography.Pkcs` | Security pin | Not used directly. SqlClient 7.1.1 pulls in 9.0.18, which has two denial-of-service advisories, so `Directory.Packages.props` pins it to the patched 10.0.13. Remove the pin once SqlClient depends on a patched version itself. |
+| `react`, `react-dom` | Front end | The UI library the front end is built on. |
+| `vite` | Front end, dev | Dev server (including the `/api` proxy) and production bundler. |
+| `@vitejs/plugin-react` | Front end, dev | Lets Vite compile JSX and reload components in place while you edit. |
+| `typescript` | Front end, dev | Type checking; `npm run build` fails on type errors. Pinned to 6.0.x until `typescript-eslint` supports TypeScript 7. |
+| `@types/react`, `@types/react-dom` | Front end, dev | Type definitions for React. |
+| `@types/node` | Front end, dev | Types for `vite.config.ts`, which runs in Node, not the browser. |
+| `eslint`, `@eslint/js` | Front end, dev | Linting, with ESLint's recommended JavaScript rules. |
+| `typescript-eslint` | Front end, dev | Lets ESLint read TypeScript and adds TypeScript-aware rules. |
+| `eslint-plugin-react-hooks` | Front end, dev | Catches broken hook usage and missing effect dependencies, which are real bugs, not style. |
+| `eslint-plugin-react-refresh` | Front end, dev | Warns when a file's exports would stop Vite's in-place reload from working. |
+| `globals` | Front end, dev | Tells ESLint which browser globals exist (`window`, `document`), so they aren't flagged as undefined. |
+| `prettier` | Front end, dev | Formatting, so style never comes up in review. Pinned to an exact version, because formatting can change between releases. |
+| `eslint-config-prettier` | Front end, dev | Turns off ESLint rules that would fight Prettier's formatting. |
+
+"Dev" packages are build and editor tooling; they aren't shipped to the browser.
 
 ## What it will include
 
 The goal is the 80% every dashboard app needs on day one:
 
-- [ ] Solution layout: front end, API, and database projects in one repo
-- [ ] Local dev environment with Docker Compose and seeded data
+- [x] Solution layout: front end, API, and database projects in one repo
+- [x] Local dev environment with Docker Compose and seeded data
 - [ ] App shell: sidebar navigation, top bar with tenant switcher, responsive layout, light and dark themes
 - [ ] Authentication: sign in, sign out, password reset
 - [ ] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
@@ -141,19 +169,83 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 
 ## Getting started
 
-The first runnable version lands with post 2. The plan:
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) (current LTS), [Node.js](https://nodejs.org/) (current LTS; at least 20.19 or 22.12), and [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
-1. Install the .NET SDK (current LTS), Node.js (current LTS), and Docker Desktop.
-2. Start SQL Server: `docker compose up -d`
-3. Create the schema: `dotnet run --project src/Db -- migrate`, then `dotnet run --project src/Db -- seed` the first time.
-4. Run the API: `dotnet run --project src/Api`
-5. Run the front end: `npm install` then `npm run dev` in `src/Web`
+From the repo root:
 
-**On an Apple Silicon Mac?** SQL Server's container image is built for Intel, so turn on "Use Rosetta for x86_64/amd64 emulation" in Docker Desktop's settings before step 2. It runs a little slower than native, which doesn't matter for development.
+```
+cp .env.example .env                       # local dev settings (gitignored)
+docker compose up -d --wait                # start SQL Server and wait until it's ready
+dotnet run --project src/Db -- migrate     # create the database and schema
+dotnet run --project src/Db -- seed        # add demo data (Development only)
+dotnet run --project src/Api               # API on http://localhost:5080
+```
+
+Then, in a second terminal:
+
+```
+cd src/Web
+npm install
+npm run dev                                # front end on http://localhost:5173
+```
+
+Open <http://localhost:5173>. You should see three green checks: the front end, the API, and the database, with the schema version the database is on.
+
+What just happened:
+
+- **Docker** runs SQL Server 2025 only, on port 1433, with its data in a named volume (`sqlserver-data`) so it survives restarts.
+- **`migrate`** creates the `DashboardStarter` database if it's missing, runs any new scripts in `sql/migrations`, then reruns everything in `sql/programmable`. It prints `applied`, `skipped`, or `failed` for each file. Run it as often as you like; the second run skips everything.
+- **`seed`** adds two demo tenants (Acme Corporation and Globex Industries) and one demo user, `demo@example.com`, who belongs to both. It refuses to run outside Development.
+- **The API** checks at startup that no migrations are pending. If one is, it refuses to start and tells you to run `migrate`. It never changes the schema itself.
+- **The front end** runs on the Vite dev server, which forwards `/api` to the API, so the browser only ever talks to one origin.
+
+**Changed the password in `.env`?** The API and the Db runner use the password from `.env.example` by default. If you change it, set your connection string as an environment variable in the terminal you run them from.
+
+Bash or zsh (macOS, Linux, Git Bash):
+
+```bash
+export ConnectionStrings__Default='Server=127.0.0.1,1433;Database=DashboardStarter;User Id=sa;Password=<your password>;Encrypt=True;TrustServerCertificate=True'
+```
+
+PowerShell (Windows):
+
+```powershell
+$env:ConnectionStrings__Default = 'Server=127.0.0.1,1433;Database=DashboardStarter;User Id=sa;Password=<your password>;Encrypt=True;TrustServerCertificate=True'
+```
+
+Use single quotes, as shown, so characters like `!` and `$` in the password are taken literally. Either way, the variable lasts until you close that terminal.
+
+For the API you can use a user secret instead: `dotnet user-secrets set "ConnectionStrings:Default" "<connection string>" --project src/Api`.
+
+**Already have a SQL Server?** Set `ConnectionStrings__Default` to point at it and skip Docker. That works, but Docker is the supported path. If something else already uses port 1433, change the port on the left of `"1433:1433"` in `docker-compose.yml` and in your connection string.
+
+**On an Apple Silicon Mac?** SQL Server's container image is built for Intel, so turn on "Use Rosetta for x86_64/amd64 emulation" in Docker Desktop's settings before starting it. It runs a little slower than native, which doesn't matter for development.
 
 **Docker Desktop licensing:** free for personal use, education, and small businesses. Larger companies need a paid subscription, so check before installing it on a work machine.
 
-Already have a SQL Server? Point the connection string at it and skip step 2. That works, but Docker is the supported path.
+**Start over with an empty database:** `docker compose down -v` deletes the container and its volume. Then run the steps again from `docker compose up`.
+
+### Repo layout
+
+```
+/sql                 schema scripts (see "Schema scripts" above)
+/src/Db              the migration runner: `migrate` and `seed`
+/src/Api             ASP.NET Core Web API (controllers)
+/src/Web             React + TypeScript front end (Vite)
+docker-compose.yml   SQL Server for local development
+```
+
+### Checks
+
+The same checks run in CI on every pull request:
+
+```
+dotnet build                 # warnings are errors, including code style from .editorconfig
+cd src/Web
+npm run lint                 # ESLint
+npm run format:check         # Prettier (npm run format to fix)
+npm run build                # type-check and build
+```
 
 ## FAQ
 

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>DashboardStarter.Db</RootNamespace>
+    <AssemblyName>DashboardStarter.Db</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+  </ItemGroup>
+
+  <!--
+    The SQL scripts in /sql are compiled into this assembly as embedded resources, named
+    like "sql/migrations/0001_tenants.sql". The runner and the API's startup check then
+    work from the same list of scripts, with no file paths to configure at deploy time.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\sql\**\*.sql" LinkBase="sql" LogicalName="sql/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>
