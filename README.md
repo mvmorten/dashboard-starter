@@ -163,8 +163,8 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 
 | # | Post | Release | Status |
 | --- | --- | --- | --- |
-| 1 | [Why build another dashboard starter?](https://mvmorten.com/projects/dashboard-starter/) | v0.1 | Published |
-| 2 | Repo structure and local dev setup | v0.2 | In progress |
+| 1 | [Why build another dashboard starter?](https://mvmorten.com/projects/dashboard-starter/why-another-dashboard-starter) | [v0.1](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.1) | Published |
+| 2 | [No magic: repo structure and local dev setup](https://mvmorten.com/projects/dashboard-starter/no-magic) | [v0.2](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.2) | Published |
 | 3 | The app shell | v0.3 | Planned |
 | ... | More to come | | |
 
