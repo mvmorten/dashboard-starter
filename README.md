@@ -27,9 +27,16 @@ This repo aims to be:
 | Database | SQL Server |
 | Data access | Dapper, with hand-written SQL |
 | Schema changes | Idempotent SQL change scripts, checked into source and safe to re-run |
+| Multi-tenancy | `TenantId` column on every tenant-owned table, from the first script |
 | Auth | Cookie / token based auth with users, roles, and permissions |
 | Local dev | Docker Compose (SQL Server in a container), one command to run |
 | CI | GitHub Actions for build, test, and lint |
+
+## Database conventions
+
+- **Dapper, not an ORM.** Queries are plain SQL you can read, tune, and run in SSMS.
+- **Every schema change is a script.** Change scripts live in source control, run in order, and are idempotent: each one checks whether its change already exists (`IF NOT EXISTS`, `IF COL_LENGTH(...) IS NULL`, and so on) so running it twice is safe.
+- **Tenant-aware from day one.** Retrofitting tenancy into a live app is painful, so the schema starts with it. Every tenant-owned table carries a `TenantId`, it leads the relevant indexes, and data access always filters by the current tenant. A single default tenant is seeded, so apps that never need more than one tenant can ignore it. SQL Server Row-Level Security is being evaluated as a safety net under the app-level filtering.
 
 ## What it will include
 
@@ -39,6 +46,7 @@ The goal is the 80% every dashboard app needs on day one:
 - [ ] Local dev environment with Docker Compose and seeded data
 - [ ] App shell: sidebar navigation, top bar, responsive layout, light and dark themes
 - [ ] Authentication: sign in, sign out, password reset
+- [ ] Tenants, with a `TenantId` on tenant-owned data and tenant-scoped queries
 - [ ] Users, roles, and permissions, enforced on both API and UI
 - [ ] A reusable data grid with server-side paging, sorting, and filtering
 - [ ] CRUD example module showing the end-to-end pattern
@@ -56,7 +64,7 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 
 | # | Post | Status |
 | --- | --- | --- |
-| 1 | Why build another dashboard starter? | Planned |
+| 1 | [Why build another dashboard starter?](https://mvmorten.com/projects/dashboard-starter/) | Published |
 | 2 | Repo structure and local dev setup | Planned |
 | 3 | The app shell | Planned |
 | ... | More to come | |
