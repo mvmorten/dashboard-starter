@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { checkHealth, type HealthCheck } from "./health";
+import { checkHealth, type DatabaseHealth, type HealthCheck } from "./health";
 
 type State = { kind: "checking" } | HealthCheck;
 
@@ -71,32 +71,41 @@ function ApiAndDatabase({ state }: { state: State }) {
   }
 
   const { health } = state;
-  const database = health.database;
-  const checkedAt = new Date(health.checkedAt).toLocaleTimeString();
+  const healthy = health.status === "Healthy";
+  const apiDetail = health.checkedAt
+    ? `Answered at ${new Date(health.checkedAt).toLocaleTimeString()}.`
+    : "Answered.";
 
   return (
     <>
-      <Check label="API" ok={true} detail={`Answered at ${checkedAt}.`} />
-      {database.reachable ? (
-        <Check
-          label="Database"
-          ok={true}
-          detail={
-            <>
-              SQL Server {database.serverVersion}. Schema version{" "}
-              <code>{database.schemaVersion ?? "none"}</code> (
-              {database.appliedMigrations} of {database.expectedMigrations}{" "}
-              migrations applied).
-            </>
-          }
-        />
-      ) : (
-        <Check
-          label="Database"
-          ok={false}
-          detail="The API can't reach SQL Server. Is it running? docker compose up -d --wait"
-        />
-      )}
+      <Check label="API" ok={true} detail={apiDetail} />
+      <Check
+        label="Database"
+        ok={healthy}
+        detail={
+          healthy ? (
+            <DatabaseDetail database={health.database} />
+          ) : (
+            "The API can't reach SQL Server. Is it running? docker compose up -d --wait"
+          )
+        }
+      />
+    </>
+  );
+}
+
+// The API only sends database details in Development.
+function DatabaseDetail({ database }: { database?: DatabaseHealth }) {
+  if (!database) {
+    return <>Reachable. Version details are only shown in Development.</>;
+  }
+
+  return (
+    <>
+      SQL Server {database.serverVersion}. Schema version{" "}
+      <code>{database.schemaVersion ?? "none"}</code> (
+      {database.appliedMigrations} of {database.expectedMigrations} migrations
+      applied).
     </>
   );
 }

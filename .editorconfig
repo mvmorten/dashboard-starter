@@ -38,6 +38,12 @@ dotnet_diagnostic.IDE0161.severity = error
 csharp_style_prefer_top_level_statements = false:error
 dotnet_diagnostic.IDE0210.severity = none
 
+# Log message templates must be constant strings (CA2254): write
+# _logger.LogInformation("Applied {Migration}", name), never $"Applied {name}".
+# Interpolation throws away the named properties and builds the string even when
+# the log level is off.
+dotnet_diagnostic.CA2254.severity = error
+
 # Prefer `var` only when the type is obvious from the right-hand side.
 csharp_style_var_when_type_is_apparent = true:suggestion
 csharp_style_var_for_built_in_types = false:suggestion

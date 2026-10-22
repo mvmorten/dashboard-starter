@@ -4,9 +4,11 @@ using System.Threading.Tasks;
 using DashboardStarter.Api.Database;
 using DashboardStarter.Db.Scripts;
 using Dapper;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace DashboardStarter.Api.Health;
@@ -14,17 +16,23 @@ namespace DashboardStarter.Api.Health;
 /// <summary>
 /// Reports whether the API is up and can reach the database. Returns 200 when healthy
 /// and 503 when the database can't be reached, so a load balancer can use it as-is.
+/// Version and migration details are included in Development only.
 /// </summary>
 [ApiController]
 [Route("api/health")]
 public sealed class HealthController : ControllerBase
 {
   private readonly SqlConnectionFactory _connectionFactory;
+  private readonly IWebHostEnvironment _environment;
   private readonly ILogger<HealthController> _logger;
 
-  public HealthController(SqlConnectionFactory connectionFactory, ILogger<HealthController> logger)
+  public HealthController(
+    SqlConnectionFactory connectionFactory,
+    IWebHostEnvironment environment,
+    ILogger<HealthController> logger)
   {
     _connectionFactory = connectionFactory;
+    _environment = environment;
     _logger = logger;
   }
 
@@ -32,7 +40,11 @@ public sealed class HealthController : ControllerBase
   public async Task<ActionResult<HealthResponse>> Get(CancellationToken cancellationToken)
   {
     DatabaseHealth database = await CheckDatabaseAsync(cancellationToken);
-    HealthResponse response = new(database.Reachable ? "Healthy" : "Unhealthy", DateTime.UtcNow, database);
+    string status = database.Reachable ? "Healthy" : "Unhealthy";
+
+    HealthResponse response = _environment.IsDevelopment()
+      ? new HealthResponse(status, DateTime.UtcNow, database)
+      : new HealthResponse(status);
 
     if (!database.Reachable)
     {

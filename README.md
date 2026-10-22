@@ -44,7 +44,7 @@ This repo aims to be:
 - **Roles are per tenant.** You can be an admin in one tenant and read-only in another (`TenantUserRoles`).
 - **Switching tenants.** With one tenant you go straight in. With several, you land in the one you used last and can switch from the top bar. The auth cookie holds your user and current tenant; switching checks your membership and issues a new cookie.
 - **Removing access works right away.** Memberships can be disabled per tenant, and the API rechecks membership on each request (briefly cached).
-- A single default tenant is seeded, so apps that only ever need one tenant can ignore all of this.
+- The development seed creates two demo tenants and a demo user who belongs to both. A real deployment starts empty: create your first tenant, and if your app only ever needs one, you can ignore the rest.
 
 ## Database conventions
 
@@ -92,6 +92,34 @@ Mostly style, written down so contributors know what to expect. Enforced by `.ed
 - **Brace placement** follows each language's default: own line in C#, same line in TypeScript.
 - **C#:** a classic `Program` class with `Main` (no top-level statements), implicit usings off so every file lists its own `using` lines, file-scoped namespaces, and nullable reference types on.
 - **Front end:** standard Prettier formatting, with ESLint enforcing braces.
+- **Logging:** the built-in `Microsoft.Extensions.Logging` with the console provider. Always inject `ILogger<T>`, so every message is tagged with the class that wrote it. Write message templates with named placeholders, `_logger.LogInformation("Applied {Migration}", name)`, never string interpolation: interpolation loses the named values and builds the string even when that log level is off. The build enforces this (rule CA2254). Never log secrets: passwords, connection strings, tokens, cookies. Per-request scopes, JSON output, and a global exception handler come in later steps. The Db runner is a command-line tool, so it prints its results with `Console` directly; that's output, not logging.
+
+## Dependencies
+
+Every package is code someone else wrote that we have to keep up to date and trust, so the default is what's already there: .NET and ASP.NET Core, the browser's own APIs, and React. A library has to earn its place through **necessity** (there's no built-in way to do it), **safety** (it closes a security hole), or a **real gain in correctness** (Dapper: hand-written row mapping is repetitive, error-prone code). Saving a few lines isn't enough on its own.
+
+It's a principle, loosely held: it guides the decision, it doesn't rule out good libraries. Each new dependency is justified in the pull request that adds it and listed here.
+
+| Package | Where | Why it's here |
+| --- | --- | --- |
+| `Dapper` | API, Db runner | Maps query results to C# objects. Hand-written row mapping (column names as strings, casts, null checks) is repetitive code that breaks quietly. Dapper does only that; the SQL stays ours. |
+| `Microsoft.Data.SqlClient` | API, Db runner | The SQL Server driver. .NET doesn't ship one; this is Microsoft's. |
+| `System.Security.Cryptography.Pkcs` | Security pin | Not used directly. SqlClient 7.1.1 pulls in 9.0.18, which has two denial-of-service advisories, so `Directory.Packages.props` pins it to the patched 10.0.13. Remove the pin once SqlClient depends on a patched version itself. |
+| `react`, `react-dom` | Front end | The UI library the front end is built on. |
+| `vite` | Front end, dev | Dev server (including the `/api` proxy) and production bundler. |
+| `@vitejs/plugin-react` | Front end, dev | Lets Vite compile JSX and reload components in place while you edit. |
+| `typescript` | Front end, dev | Type checking; `npm run build` fails on type errors. Pinned to 6.0.x until `typescript-eslint` supports TypeScript 7. |
+| `@types/react`, `@types/react-dom` | Front end, dev | Type definitions for React. |
+| `@types/node` | Front end, dev | Types for `vite.config.ts`, which runs in Node, not the browser. |
+| `eslint`, `@eslint/js` | Front end, dev | Linting, with ESLint's recommended JavaScript rules. |
+| `typescript-eslint` | Front end, dev | Lets ESLint read TypeScript and adds TypeScript-aware rules. |
+| `eslint-plugin-react-hooks` | Front end, dev | Catches broken hook usage and missing effect dependencies, which are real bugs, not style. |
+| `eslint-plugin-react-refresh` | Front end, dev | Warns when a file's exports would stop Vite's in-place reload from working. |
+| `globals` | Front end, dev | Tells ESLint which browser globals exist (`window`, `document`), so they aren't flagged as undefined. |
+| `prettier` | Front end, dev | Formatting, so style never comes up in review. Pinned to an exact version, because formatting can change between releases. |
+| `eslint-config-prettier` | Front end, dev | Turns off ESLint rules that would fight Prettier's formatting. |
+
+"Dev" packages are build and editor tooling; they aren't shipped to the browser.
 
 ## What it will include
 
@@ -171,11 +199,21 @@ What just happened:
 - **The API** checks at startup that no migrations are pending. If one is, it refuses to start and tells you to run `migrate`. It never changes the schema itself.
 - **The front end** runs on the Vite dev server, which forwards `/api` to the API, so the browser only ever talks to one origin.
 
-**Changed the password in `.env`?** The API and the Db runner use the password from `.env.example` by default. If you change it, give them your connection string as an environment variable:
+**Changed the password in `.env`?** The API and the Db runner use the password from `.env.example` by default. If you change it, set your connection string as an environment variable in the terminal you run them from.
 
+Bash or zsh (macOS, Linux, Git Bash):
+
+```bash
+export ConnectionStrings__Default='Server=127.0.0.1,1433;Database=DashboardStarter;User Id=sa;Password=<your password>;Encrypt=True;TrustServerCertificate=True'
 ```
-ConnectionStrings__Default="Server=127.0.0.1,1433;Database=DashboardStarter;User Id=sa;Password=<your password>;Encrypt=True;TrustServerCertificate=True"
+
+PowerShell (Windows):
+
+```powershell
+$env:ConnectionStrings__Default = 'Server=127.0.0.1,1433;Database=DashboardStarter;User Id=sa;Password=<your password>;Encrypt=True;TrustServerCertificate=True'
 ```
+
+Use single quotes, as shown, so characters like `!` and `$` in the password are taken literally. Either way, the variable lasts until you close that terminal.
 
 For the API you can use a user secret instead: `dotnet user-secrets set "ConnectionStrings:Default" "<connection string>" --project src/Api`.
 

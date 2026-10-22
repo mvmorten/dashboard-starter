@@ -8,10 +8,11 @@ export interface DatabaseHealth {
   expectedMigrations: number;
 }
 
+// Outside Development the API sends only `status`; the details stay on dev machines.
 export interface HealthResponse {
   status: "Healthy" | "Unhealthy";
-  checkedAt: string;
-  database: DatabaseHealth;
+  checkedAt?: string;
+  database?: DatabaseHealth;
 }
 
 export type HealthCheck =

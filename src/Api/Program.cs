@@ -18,18 +18,19 @@ public static class Program
     string? connectionString = builder.Configuration.GetConnectionString("Default");
     if (string.IsNullOrWhiteSpace(connectionString))
     {
+      // Logging isn't set up until the app is built, so this one message goes to stderr.
       Console.Error.WriteLine(
         $"No connection string. Environment is '{builder.Environment.EnvironmentName}', so set ConnectionStrings__Default.");
       return 1;
     }
 
-    SqlConnectionFactory connectionFactory = new(connectionString);
-    builder.Services.AddSingleton(connectionFactory);
+    builder.Services.AddSingleton(new SqlConnectionFactory(connectionString));
+    builder.Services.AddSingleton<StartupSchemaCheck>();
     builder.Services.AddControllers();
 
     WebApplication app = builder.Build();
 
-    bool canStart = await StartupSchemaCheck.RunAsync(connectionFactory, app.Logger);
+    bool canStart = await app.Services.GetRequiredService<StartupSchemaCheck>().RunAsync();
     if (!canStart)
     {
       return 1;
