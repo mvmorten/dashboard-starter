@@ -25,7 +25,8 @@ This repo aims to be:
 | Front end | React + TypeScript, built with Vite |
 | API | ASP.NET Core Web API (C#, current .NET LTS) |
 | Database | SQL Server |
-| Data access | EF Core, with migrations checked into source |
+| Data access | Dapper, with hand-written SQL |
+| Schema changes | Idempotent SQL change scripts, checked into source and safe to re-run |
 | Auth | Cookie / token based auth with users, roles, and permissions |
 | Local dev | Docker Compose (SQL Server in a container), one command to run |
 | CI | GitHub Actions for build, test, and lint |
