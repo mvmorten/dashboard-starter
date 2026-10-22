@@ -92,6 +92,7 @@ Mostly style, written down so contributors know what to expect. Enforced by `.ed
 - **Brace placement** follows each language's default: own line in C#, same line in TypeScript.
 - **C#:** a classic `Program` class with `Main` (no top-level statements), implicit usings off so every file lists its own `using` lines, file-scoped namespaces, and nullable reference types on.
 - **Front end:** standard Prettier formatting, with ESLint enforcing braces.
+- **Mobile first.** The base CSS targets a phone, and `min-width` media queries add the larger layouts. Every screen has to work at 390 px wide without the page scrolling sideways; wide content like data grids scrolls inside its own container. Touch targets are at least 44 px, and nothing is reachable only by hover.
 - **Logging:** the built-in `Microsoft.Extensions.Logging` with the console provider. Always inject `ILogger<T>`, so every message is tagged with the class that wrote it. Write message templates with named placeholders, `_logger.LogInformation("Applied {Migration}", name)`, never string interpolation: interpolation loses the named values and builds the string even when that log level is off. The build enforces this (rule CA2254). Never log secrets: passwords, connection strings, tokens, cookies. Per-request scopes, JSON output, and a global exception handler come in later steps. The Db runner is a command-line tool, so it prints its results with `Console` directly; that's output, not logging.
 
 ## Dependencies

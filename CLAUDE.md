@@ -42,6 +42,11 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
   - File-scoped namespaces (`namespace DashboardStarter.Api.Users;`).
   - Nullable reference types enabled.
 - **TypeScript / React:** standard Prettier formatting; ESLint with `curly: "all"`.
+- **Mobile first.** Write the base CSS for a phone, then add `min-width` media queries for larger screens (never the other way around).
+  - Every screen works at 390 px wide with no sideways scrolling of the page. Check at 390 px and 1280 px before opening a PR, and say in the PR that you did.
+  - Wide content (data grids, code, diagrams) scrolls inside its own container, never the page.
+  - Touch targets at least 44 x 44 px. Form inputs at least 16 px font size, so iOS doesn't zoom in on focus.
+  - Don't rely on hover: anything a hover reveals must also be reachable by tap and keyboard.
 
 ## Logging
 
