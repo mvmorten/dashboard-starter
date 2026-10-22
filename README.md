@@ -69,7 +69,7 @@ This repo uses [GitHub flow](https://docs.github.com/en/get-started/using-github
 
 `main` is protected: no direct pushes, no force pushes.
 
-> **Why the change?** The first few commits went straight to `main`. That's normal for a solo project, but this is a starter other people will fork, and whatever workflow it shows is the one they'll pick up. We noticed it early and switched before any real code landed. This PR is the first one under the new rules.
+> **Why the change?** The first few commits went straight to `main`. With one person on the project, branches and PRs aren't strictly necessary. They're still a good habit: a protected `main` keeps you from pushing a half-finished change or a broken build where everything else depends on it, and a PR gives you one last look at the diff before it lands. And if you work on a team, which most of us will, you won't be committing straight to `main`, or at least you shouldn't be. This is also a starter other people will fork, so it should show the workflow worth copying. We noticed early and switched before any real code landed. This PR is the first one under the new rules.
 
 ## Building in public
 
