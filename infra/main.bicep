@@ -32,8 +32,8 @@ param sqlAdminLogin string = 'dashboard_admin'
 @secure()
 param sqlAdminPassword string
 
-@description('true: Azure SQL\'s free serverless database (pauses when idle, so the first request after a pause is slow). false: an always-on Basic database, a few dollars a month.')
-param useFreeDatabase bool = true
+@description('false (default): an always-on Basic database, a few dollars a month. true: Azure SQL\'s free serverless database, which pauses when idle, so the first request after a pause waits up to a minute.')
+param useFreeDatabase bool = false
 
 @description('App Service plan size. B1 is the smallest Linux size with Always On.')
 param appServiceSku string = 'B1'

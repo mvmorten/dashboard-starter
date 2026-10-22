@@ -88,8 +88,8 @@ function ApiAndDatabase({ state }: { state: State }) {
           ) : import.meta.env.DEV ? (
             "The API can't reach SQL Server. Is it running? docker compose up -d --wait"
           ) : (
-            // The demo runs on Azure SQL's free serverless tier, which pauses when idle.
-            "The API can't reach the database. It may be waking up from a pause; try again in a minute."
+            // A serverless database (useFreeDatabase in infra/main.bicep) pauses when idle.
+            "The API can't reach the database. If it's waking up from a pause, try again in a minute."
           )
         }
       />
