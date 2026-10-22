@@ -191,6 +191,8 @@ npm run dev                                # front end on http://localhost:5173
 
 Open <http://localhost:5173>. You should see three green checks: the front end, the API, and the database, with the schema version the database is on.
 
+![The health check page: front end, API, and database all ok, with the SQL Server version and schema version 0004_security_schema.sql](docs/images/health-check.png)
+
 What just happened:
 
 - **Docker** runs SQL Server 2025 only, on port 1433, with its data in a named volume (`sqlserver-data`) so it survives restarts.
@@ -198,6 +200,8 @@ What just happened:
 - **`seed`** adds two demo tenants (Acme Corporation and Globex Industries) and one demo user, `demo@example.com`, who belongs to both. It refuses to run outside Development.
 - **The API** checks at startup that no migrations are pending. If one is, it refuses to start and tells you to run `migrate`. It never changes the schema itself.
 - **The front end** runs on the Vite dev server, which forwards `/api` to the API, so the browser only ever talks to one origin.
+
+**Using VS Code?** The repo includes launch configurations (Run and Debug, or F5): `API`, `Db: migrate`, `Db: seed`, `Web (Chrome)`, and `API + Web` for the whole app. They do the same as the commands above, with the debugger attached. You still start SQL Server with `docker compose up -d --wait` and run `npm install` in `src/Web` once. The .NET configurations need the C# extension (`ms-dotnettools.csharp`); VS Code offers to install it.
 
 **Changed the password in `.env`?** The API and the Db runner use the password from `.env.example` by default. If you change it, set your connection string as an environment variable in the terminal you run them from.
 
@@ -232,6 +236,8 @@ For the API you can use a user secret instead: `dotnet user-secrets set "Connect
 /src/Db              the migration runner: `migrate` and `seed`
 /src/Api             ASP.NET Core Web API (controllers)
 /src/Web             React + TypeScript front end (Vite)
+/docs/images         screenshots used in this README
+/.vscode             launch configurations for VS Code (optional)
 docker-compose.yml   SQL Server for local development
 ```
 
