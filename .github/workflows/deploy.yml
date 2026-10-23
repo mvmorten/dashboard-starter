@@ -73,6 +73,12 @@ jobs:
       - name: Build the Db runner
         run: dotnet build src/Db --configuration Release
 
+      # The Db runner steps below use `dotnet run --no-launch-profile`. Without it, dotnet run
+      # applies src/Db/Properties/launchSettings.json, which sets DOTNET_ENVIRONMENT to
+      # Development and overrides the Production set here. The first real deploy ran
+      # migrate as "Development" because of this, which would also have let `seed` load
+      # demo data into the live database.
+
       # OpenID Connect: GitHub signs a short-lived token saying "this is a deploy job in
       # mvmorten/dashboard-starter, environment demo". Azure is set up to trust exactly that
       # (a federated credential), so no Azure password is stored in GitHub.
@@ -108,7 +114,7 @@ jobs:
           ConnectionStrings__Default: Server=tcp:${{ env.SQL_SERVER_NAME }}.database.windows.net,1433;Database=${{ env.DATABASE_NAME }};User Id=${{ env.SQL_ADMIN_LOGIN }};Password=${{ secrets.SQL_ADMIN_PASSWORD }};Encrypt=True;TrustServerCertificate=False;Connect Timeout=60
         run: |
           for attempt in 1 2 3 4; do
-            if dotnet run --no-build --configuration Release --project src/Db -- migrate; then
+            if dotnet run --no-build --no-launch-profile --configuration Release --project src/Db -- migrate; then
               exit 0
             fi
             echo "Attempt $attempt failed. Waiting 30 seconds before trying again."
@@ -121,7 +127,7 @@ jobs:
           DOTNET_ENVIRONMENT: Production
           ConnectionStrings__Default: Server=tcp:${{ env.SQL_SERVER_NAME }}.database.windows.net,1433;Database=${{ env.DATABASE_NAME }};User Id=${{ env.SQL_ADMIN_LOGIN }};Password=${{ secrets.SQL_ADMIN_PASSWORD }};Encrypt=True;TrustServerCertificate=False;Connect Timeout=60
           APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
-        run: dotnet run --no-build --configuration Release --project src/Db -- app-user
+        run: dotnet run --no-build --no-launch-profile --configuration Release --project src/Db -- app-user
 
       - name: Close the database firewall
         if: always()

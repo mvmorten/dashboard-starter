@@ -92,8 +92,13 @@ internal static class MigrateCommand
   {
     // CREATE DATABASE doesn't accept a parameter for the name, so the statement is built
     // on the server, where QUOTENAME turns the name into a safely quoted identifier.
+    //
+    // sys.databases, not DB_ID(): on Azure SQL, DB_ID() run from master returns NULL for
+    // user databases, so the check said "missing" and CREATE DATABASE then failed with
+    // "already exists". sys.databases in master lists every database on both Azure SQL
+    // and SQL Server.
     const string sql = """
-      IF DB_ID(@DatabaseName) IS NULL
+      IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = @DatabaseName)
       BEGIN
         DECLARE @createSql nvarchar(max) = N'CREATE DATABASE ' + QUOTENAME(@DatabaseName) + N';';
         EXEC sys.sp_executesql @createSql;

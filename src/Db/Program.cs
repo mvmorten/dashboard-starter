@@ -58,7 +58,7 @@ public static class Program
     catch (SqlException exception)
     {
       Console.Error.WriteLine($"SQL Server error: {exception.Message}");
-      Console.Error.WriteLine("Is SQL Server running? Start it with: docker compose up -d --wait");
+      Console.Error.WriteLine("Is SQL Server running and reachable? For local development, start it with: docker compose up -d --wait");
       return 1;
     }
   }
