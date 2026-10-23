@@ -139,17 +139,17 @@ gh variable set AZURE_WEBAPP_NAME --body "$APP"
 
 ## 5. Deploy
 
-Merge anything to `main`, or open **Actions > Deploy > Run workflow** to deploy the current `main` without a new commit. The deploy job:
+Merge anything to `main`. To redeploy the current `main` without a new commit, open **Actions > CI > Run workflow** on `main` (or `gh workflow run ci.yml --ref main`): it runs every check again, then deploys. The deploy job:
 
-1. Builds the React app and publishes the API with the build in `wwwroot`.
+1. Stamps the build with CI's run number, the commit, and the time, then builds the React app and publishes the API with the build in `wwwroot`. Both halves carry the same stamp.
 2. Signs in to Azure (step 3) and opens the SQL firewall to the runner's IP address for the length of the job.
 3. Runs `src/Db migrate` with the admin login, retrying while a paused database wakes up.
 4. Runs `src/Db app-user`, which creates the API's login (or resets its password) with data access only.
 5. Closes the firewall again, even if a step failed.
 6. Sets the app's connection string (the API's login, not the admin) and `CanonicalHost`.
-7. Deploys the zip and waits for `/api/health` to report healthy.
+7. Deploys the zip and waits for `/api/health` to report healthy **and** the commit it just deployed. Healthy alone could be the previous version, still answering while the new one starts.
 
-Then open `https://<APP>.azurewebsites.net`.
+Then open `https://<APP>.azurewebsites.net`. The footer shows the build number and commit. If a deploy lands while a tab is open, the page notices on its next health check and offers a reload.
 
 Forks: CI skips the deploy job unless `AZURE_WEBAPP_NAME` is set, so a fork stays green without any Azure setup.
 
@@ -172,7 +172,7 @@ To serve the app on your own domain, for example `dashboard.example.com`, with a
      --certificate-thumbprint $THUMBPRINT --ssl-type SNI
    ```
 
-3. Set the repository variable `CANONICAL_HOST` to the main name (`dashboard.example.com`) and run the Deploy workflow.
+3. Set the repository variable `CANONICAL_HOST` to the main name (`dashboard.example.com`) and run CI on `main` by hand to redeploy.
 
 With `CanonicalHost` set, the API permanently redirects every other host name, including `<APP>.azurewebsites.net`, to the canonical one. That matters from step 4 (authentication) on: cookies belong to one host, so a user who signed in on one name would be signed out on another. `/api/health` is answered on every host, so health checks keep working on the default name.
 
@@ -180,7 +180,7 @@ The certificates renew automatically. Host names and certificates aren't in the 
 
 ## Day to day
 
-- **Rotate the API's password:** change the `APP_DB_PASSWORD` secret and run Deploy. `app-user` resets the login's password and the app gets the new connection string in the same run.
+- **Rotate the API's password:** change the `APP_DB_PASSWORD` secret and run CI on `main`. `app-user` resets the login's password and the app gets the new connection string in the same run.
 - **Rotate the admin password:** `az sql server update --resource-group $RG --name $APP-sql --admin-password "<new>"`, then update `SQL_ADMIN_PASSWORD`.
 - **Logs:** `az webapp log tail --resource-group $RG --name $APP`, or **Log stream** in the portal.
 - **Connect from SSMS:** add your IP under the SQL server's **Networking** settings, connect to `<APP>-sql.database.windows.net` with the admin login, and remove the rule when done. If you chose the free database, an open SSMS connection keeps it awake and uses up its monthly allowance.

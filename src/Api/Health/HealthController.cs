@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using DashboardStarter.Api.Database;
+using DashboardStarter.Api.Hosting;
 using DashboardStarter.Db.Scripts;
 using Dapper;
 using Microsoft.AspNetCore.Hosting;
@@ -16,7 +17,7 @@ namespace DashboardStarter.Api.Health;
 /// <summary>
 /// Reports whether the API is up and can reach the database. Returns 200 when healthy
 /// and 503 when the database can't be reached, so a load balancer can use it as-is.
-/// Version and migration details are included in Development only.
+/// Every response says which build is running; server and migration details are Development only.
 /// </summary>
 [ApiController]
 [Route("api/health")]
@@ -43,8 +44,8 @@ public sealed class HealthController : ControllerBase
     string status = database.Reachable ? "Healthy" : "Unhealthy";
 
     HealthResponse response = _environment.IsDevelopment()
-      ? new HealthResponse(status, DateTime.UtcNow, database)
-      : new HealthResponse(status);
+      ? new HealthResponse(status, BuildInfo.Current, DateTime.UtcNow, database)
+      : new HealthResponse(status, BuildInfo.Current);
 
     if (!database.Reachable)
     {

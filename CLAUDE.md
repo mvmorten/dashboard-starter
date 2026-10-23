@@ -93,7 +93,8 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 ## Deployment
 
 - Azure App Service (Linux) runs the API and serves the React build from `wwwroot`; Azure SQL holds the data. Resources are defined in `infra/main.bicep`; the one-time setup is in `docs/deploy-azure.md`.
-- `.github/workflows/deploy.yml` deploys `main` after CI passes: build, `migrate`, `app-user`, set app settings, zip deploy, health check. Order matters: migrate before deploying code.
+- `.github/workflows/deploy.yml` deploys `main` after CI passes: build, `migrate`, `app-user`, set app settings, zip deploy, health check. Order matters: migrate before deploying code. Only CI calls it; to redeploy, run CI by hand on `main`.
+- One build stamp (CI run number, commit, UTC time) for the whole app: passed to `dotnet publish` as `-p:BuildNumber/BuildCommit/BuildTime` and to Vite as `VITE_BUILD_*`. The health check must see the deployed commit, not just "Healthy".
 - The deploy runs `migrate` **before** the new code starts, so the old code briefly runs against the new schema. Migrations must only add (new tables, nullable or defaulted columns). Removing or renaming something takes two deploys: stop using it, then drop it.
 - The API connects as its own login in the `app_runtime` role (data only, no DDL). Only the Db runner uses the admin login. Never give the API's login schema rights.
 - No Azure-specific code in the app. Configuration comes from environment variables (`ConnectionStrings__Default`, `CanonicalHost`).

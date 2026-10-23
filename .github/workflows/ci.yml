@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Run by hand on main to redeploy without a new commit (checks first, then deploy).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -149,12 +151,13 @@ jobs:
       - run: npm run build
 
   # Ships main to Azure once both checks pass (.github/workflows/deploy.yml).
-  # Skipped on pull requests, and in any fork that hasn't set up its own Azure
-  # (no AZURE_WEBAPP_NAME variable), so forks stay green without an Azure account.
+  # Runs on a push to main, or a manual run of CI on main. Skipped on pull requests, and
+  # in any fork that hasn't set up its own Azure (no AZURE_WEBAPP_NAME variable), so forks
+  # stay green without an Azure account.
   deploy:
     name: deploy
     needs: [dotnet, web]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
     permissions:
       contents: read
       id-token: write
