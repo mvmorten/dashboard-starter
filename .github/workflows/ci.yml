@@ -10,7 +10,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A new push to a pull request makes the old run pointless, so cancel it. On main the run
+  # ends in a deploy, which must never be cut off halfway, so main runs queue instead.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Builds the .NET solution, then proves the schema workflow against a real SQL Server:
@@ -75,7 +77,30 @@ jobs:
           dotnet run --no-build --configuration Release --project src/Db -- seed
           dotnet run --no-build --configuration Release --project src/Db -- seed
 
-      - name: API starts and reports healthy
+      # The API connects with its own login, which can read and write data but not change
+      # the schema (sql/migrations/0005_app_runtime_role.sql). Prove both halves.
+      - name: Create the API's login
+        env:
+          APP_DB_USER: dashboard_app
+          APP_DB_PASSWORD: AppDevOnly!ChangeMe1
+        run: |
+          dotnet run --no-build --configuration Release --project src/Db -- app-user
+          # Twice: the second run resets the password and must also succeed.
+          dotnet run --no-build --configuration Release --project src/Db -- app-user
+
+      - name: The API's login can read data but can't change the schema
+        run: |
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -d DashboardStarter -U dashboard_app -P AppDevOnly!ChangeMe1"
+          $sqlcmd -Q "SELECT COUNT(*) FROM dbo.Tenants;"
+          if $sqlcmd -Q "CREATE TABLE dbo.ShouldNotExist (Id int);"; then
+            echo "The app login was able to create a table."
+            exit 1
+          fi
+          echo "CREATE TABLE was refused, as it should be."
+
+      - name: API starts and reports healthy (as the app login)
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
         run: |
           dotnet run --no-build --configuration Release --project src/Api > api.log 2>&1 &
           for attempt in $(seq 1 30); do
@@ -122,3 +147,16 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run build
+
+  # Ships main to Azure once both checks pass (.github/workflows/deploy.yml).
+  # Skipped on pull requests, and in any fork that hasn't set up its own Azure
+  # (no AZURE_WEBAPP_NAME variable), so forks stay green without an Azure account.
+  deploy:
+    name: deploy
+    needs: [dotnet, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit

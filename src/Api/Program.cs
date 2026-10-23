@@ -1,9 +1,11 @@
 using System;
 using System.Threading.Tasks;
 using DashboardStarter.Api.Database;
+using DashboardStarter.Api.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace DashboardStarter.Api;
 
@@ -34,6 +36,24 @@ public static class Program
     if (!canStart)
     {
       return 1;
+    }
+
+    // Production: one host name for the whole site (see CanonicalHostMiddleware).
+    // Empty in Development, so nothing is redirected locally.
+    string? canonicalHost = app.Configuration["CanonicalHost"];
+    if (!string.IsNullOrWhiteSpace(canonicalHost))
+    {
+      app.UseMiddleware<CanonicalHostMiddleware>(canonicalHost);
+    }
+
+    // Outside Development the API also serves the React app: the deploy pipeline copies
+    // the Vite build (src/Web/dist) into wwwroot, so the browser gets the page and the
+    // API from one origin, just like the Vite proxy gives it locally.
+    // In Development the Vite dev server serves the front end, so there's no wwwroot.
+    if (!app.Environment.IsDevelopment())
+    {
+      app.UseDefaultFiles();
+      app.UseStaticFiles();
     }
 
     app.MapControllers();

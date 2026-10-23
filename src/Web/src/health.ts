@@ -24,14 +24,21 @@ export async function checkHealth(signal: AbortSignal): Promise<HealthCheck> {
   try {
     response = await fetch("/api/health", { signal });
   } catch {
-    return { kind: "apiDown", message: "The dev server didn't respond." };
+    return {
+      kind: "apiDown",
+      message: import.meta.env.DEV
+        ? "The dev server didn't respond."
+        : "The server didn't respond.",
+    };
   }
 
   // 503 still carries a body: the API is up but can't reach the database.
   if (response.status !== 200 && response.status !== 503) {
     return {
       kind: "apiDown",
-      message: `The API didn't answer (HTTP ${response.status}). Is it running? dotnet run --project src/Api`,
+      message: import.meta.env.DEV
+        ? `The API didn't answer (HTTP ${response.status}). Is it running? dotnet run --project src/Api`
+        : `The API didn't answer (HTTP ${response.status}).`,
     };
   }
 

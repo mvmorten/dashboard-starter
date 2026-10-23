@@ -27,8 +27,8 @@ export default function App() {
     <main>
       <h1>Dashboard Starter</h1>
       <p className="lead">
-        Is everything connected? This page calls <code>GET /api/health</code>{" "}
-        through the Vite proxy.
+        Is everything connected? This page calls <code>GET /api/health</code>
+        {import.meta.env.DEV ? " through the Vite proxy." : "."}
       </p>
 
       <ul className="checks">
@@ -85,8 +85,11 @@ function ApiAndDatabase({ state }: { state: State }) {
         detail={
           healthy ? (
             <DatabaseDetail database={health.database} />
-          ) : (
+          ) : import.meta.env.DEV ? (
             "The API can't reach SQL Server. Is it running? docker compose up -d --wait"
+          ) : (
+            // A serverless database (useFreeDatabase in infra/main.bicep) pauses when idle.
+            "The API can't reach the database. If it's waking up from a pause, try again in a minute."
           )
         }
       />
