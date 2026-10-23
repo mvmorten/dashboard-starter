@@ -4,6 +4,8 @@ An opinionated, open-source dashboard starter for building real business apps wi
 
 Clone it, rename it, and start on your actual product instead of rebuilding auth, layout, and plumbing for the tenth time.
 
+**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Right now that's a health check page: front end, API, and database, all connected.
+
 > **Status:** Just getting started. This project is being built in public, and every step is documented in a blog series. Expect the code to change quickly while the foundation takes shape.
 
 ---
