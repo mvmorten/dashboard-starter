@@ -18,7 +18,7 @@ Setup is a handful of commands you run once. After that, deploying is merging a 
 - The [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), signed in with `az login`.
 - Admin rights on your GitHub repo (yours, or your fork).
 
-The commands below are bash. On Windows, run them in Git Bash or WSL, or adjust the variable syntax for PowerShell.
+The commands below are bash, and steps 3 and 4 also use the [GitHub CLI](https://cli.github.com/) (`gh auth login` once). On Windows, run them in Git Bash or WSL, or adjust the variable syntax for PowerShell. In Git Bash, run `export MSYS_NO_PATHCONV=1` first: Git Bash rewrites arguments that start with `/` into Windows paths, which breaks the `--scope /subscriptions/...` argument in step 3.
 
 ## 1. Pick names
 
@@ -70,16 +70,33 @@ CLIENT_ID=$(az ad app create --display-name "$APP-deploy" --query appId --output
 az ad sp create --id $CLIENT_ID
 
 # Trust GitHub tokens from this repo's "demo" environment, and nothing else.
+# The subject names the repo by its numeric IDs as well as its name (see below).
+OWNER_ID=$(gh api repos/$REPO --jq .owner.id)
+REPO_ID=$(gh api repos/$REPO --jq .id)
+SUBJECT="repo:${REPO%%/*}@$OWNER_ID/${REPO#*/}@$REPO_ID:environment:demo"
+echo $SUBJECT
+
 az ad app federated-credential create --id $CLIENT_ID --parameters "{
   \"name\": \"github-demo\",
   \"issuer\": \"https://token.actions.githubusercontent.com\",
-  \"subject\": \"repo:$REPO:environment:demo\",
+  \"subject\": \"$SUBJECT\",
   \"audiences\": [\"api://AzureADTokenExchange\"]
 }"
 
 # Allow it to manage this resource group only.
 az role assignment create --assignee $CLIENT_ID --role Contributor \
   --scope /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG
+```
+
+**The subject must match exactly.** GitHub puts the repo in the token as `repo:<owner>@<owner id>/<repo>@<repo id>:environment:demo`, for example `repo:mvmorten@12057764/dashboard-starter@1427632484:environment:demo`. The IDs mean that if the repo is renamed or transferred, whoever takes over the old name can't deploy with this credential. Older repos may still send the plain form, `repo:mvmorten/dashboard-starter:environment:demo`. If the deploy's "Sign in to Azure" step fails with `AADSTS700213: No matching federated identity record found for presented assertion subject '...'`, the error quotes the subject GitHub actually sent. Put that exact value in the credential:
+
+```bash
+az ad app federated-credential update --id $CLIENT_ID --federated-credential-id github-demo --parameters "{
+  \"name\": \"github-demo\",
+  \"issuer\": \"https://token.actions.githubusercontent.com\",
+  \"subject\": \"<subject from the error>\",
+  \"audiences\": [\"api://AzureADTokenExchange\"]
+}"
 ```
 
 Contributor on one resource group is enough to add and remove the temporary firewall rule, set app settings, and deploy code. It can't touch anything else in the subscription.
