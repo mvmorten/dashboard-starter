@@ -1,8 +1,11 @@
 name: Deploy
 
-# Deploys main to Azure App Service. Called by CI (ci.yml) after every check passes on a
-# push to main, so a broken build never ships. Can also be started by hand from the
-# Actions tab to redeploy the current main without a new commit.
+# Deploys main to Azure App Service. Called only by CI (ci.yml), after every check passes,
+# so a broken build never ships. To redeploy main without a new commit, run CI by hand on
+# main (Actions > CI > Run workflow): it runs the checks again, then deploys.
+#
+# Only CI starts it so that the build number is always CI's run number. A Deploy workflow of
+# its own would count separately, and two builds could end up with the same number.
 #
 # One-time Azure and GitHub setup: docs/deploy-azure.md.
 #
@@ -13,11 +16,10 @@ name: Deploy
 #      against the new schema for a moment, which is why migrations should only add things.
 #   3. Create or update the API's own login (data access only).
 #   4. Hand the app its connection string, then deploy the code.
-#   5. Check /api/health on the live site.
+#   5. Check /api/health on the live site, and that it reports the commit just deployed.
 
 on:
   workflow_call:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -57,15 +59,32 @@ jobs:
           cache: npm
           cache-dependency-path: src/Web/package-lock.json
 
+      # One stamp for the whole build. The front end and the API get the same three values,
+      # and the page shows them (src/Web/src/build.ts, src/Api/Hosting/BuildInfo.cs).
+      # In a workflow called from CI, run_number and GITHUB_SHA are CI's.
+      - name: Stamp the build
+        run: |
+          echo "BUILD_NUMBER=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "BUILD_COMMIT=$GITHUB_SHA" >> "$GITHUB_ENV"
+          echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      # Vite copies VITE_ variables into the bundle at build time.
       - name: Build the front end
         working-directory: src/Web
+        env:
+          VITE_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
+          VITE_BUILD_COMMIT: ${{ env.BUILD_COMMIT }}
+          VITE_BUILD_TIME: ${{ env.BUILD_TIME }}
+          VITE_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           npm ci
           npm run build
 
+      # The -p values become assembly metadata (see DashboardStarter.Api.csproj).
       - name: Build the API, with the front end in wwwroot
         run: |
-          dotnet publish src/Api --configuration Release --output out/api
+          dotnet publish src/Api --configuration Release --output out/api \
+            -p:BuildNumber="$BUILD_NUMBER" -p:BuildCommit="$BUILD_COMMIT" -p:BuildTime="$BUILD_TIME"
           mkdir -p out/api/wwwroot
           cp -r src/Web/dist/. out/api/wwwroot/
           (cd out/api && zip -qr ../api.zip .)
@@ -154,17 +173,21 @@ jobs:
 
       # Checked on the app's default host name: /api/health is never redirected to the
       # canonical host, so this works before and after a custom domain is set up.
+      # "Healthy" alone isn't enough: the previous version answers healthy too while the new
+      # one starts. The build commit proves the new code is the one answering.
       - name: Check the live site
         run: |
           host=$(az webapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
             --query defaultHostName --output tsv)
           for attempt in $(seq 1 30); do
-            if curl -sf "https://$host/api/health" -o health.json && grep -q '"status":"Healthy"' health.json; then
-              echo "Healthy: https://$host"
+            if curl -sf "https://$host/api/health" -o health.json \
+              && jq -e --arg commit "$BUILD_COMMIT" '.status == "Healthy" and .build.commit == $commit' health.json > /dev/null; then
+              echo "Healthy, running build $BUILD_NUMBER ($BUILD_COMMIT): https://$host"
               exit 0
             fi
             sleep 10
           done
-          echo "The site didn't report healthy within 5 minutes."
+          echo "The site didn't report healthy on build $BUILD_NUMBER ($BUILD_COMMIT) within 5 minutes. Last answer:"
+          cat health.json || true
           az webapp log tail --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" --timeout 30 || true
           exit 1

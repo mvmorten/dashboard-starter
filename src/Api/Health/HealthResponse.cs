@@ -1,18 +1,23 @@
 using System;
 using System.Text.Json.Serialization;
+using DashboardStarter.Api.Hosting;
 
 namespace DashboardStarter.Api.Health;
 
 /// <summary>Response body for GET /api/health.</summary>
 /// <remarks>
-/// Outside Development only <see cref="Status"/> is sent. Server and schema versions
-/// tell an attacker exactly what they're dealing with, so they stay on developer machines.
+/// Outside Development only <see cref="Status"/> and <see cref="Build"/> are sent. Server and
+/// schema versions tell an attacker exactly what they're dealing with, so they stay on developer
+/// machines. The build is different: it names a commit in a public repo, and the deploy pipeline
+/// uses it to confirm the new version is the one answering.
 /// </remarks>
 /// <param name="Status">"Healthy" if the API can reach the database, otherwise "Unhealthy".</param>
+/// <param name="Build">Which build is running. Every field is null in a local build.</param>
 /// <param name="CheckedAt">When the check ran, in UTC. Development only.</param>
 /// <param name="Database">Database details. Development only.</param>
 public sealed record HealthResponse(
   string Status,
+  BuildInfo Build,
   [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTime? CheckedAt = null,
   [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DatabaseHealth? Database = null);
 

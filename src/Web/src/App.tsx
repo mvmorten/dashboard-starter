@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { isStale, pageBuild, repoUrl, type BuildInfo } from "./build";
 import { checkHealth, type DatabaseHealth, type HealthCheck } from "./health";
 
 type State = { kind: "checking" } | HealthCheck;
@@ -43,7 +44,57 @@ export default function App() {
       <button onClick={checkAgain} disabled={state.kind === "checking"}>
         Check again
       </button>
+
+      <StaleNotice
+        apiBuild={state.kind === "answered" ? state.health.build : undefined}
+      />
+
+      <footer className="build">
+        <BuildLine build={pageBuild} />
+      </footer>
     </main>
+  );
+}
+
+// Shown when a deploy landed after this tab loaded the page.
+function StaleNotice({ apiBuild }: { apiBuild: BuildInfo | undefined }) {
+  if (!apiBuild || !isStale(apiBuild)) {
+    return null;
+  }
+
+  return (
+    <p className="stale" role="status">
+      A newer build{apiBuild.number ? ` (${apiBuild.number})` : ""} is live.{" "}
+      <button onClick={() => window.location.reload()}>Reload</button>
+    </p>
+  );
+}
+
+function BuildLine({ build }: { build: BuildInfo }) {
+  if (!build.commit) {
+    return <>Local development build</>;
+  }
+
+  const shortCommit = build.commit.slice(0, 7);
+  const commit = repoUrl ? (
+    <a href={`${repoUrl}/commit/${build.commit}`}>
+      <code>{shortCommit}</code>
+    </a>
+  ) : (
+    <code>{shortCommit}</code>
+  );
+  const builtAt = build.builtAt
+    ? new Date(build.builtAt).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
+
+  return (
+    <>
+      Build {build.number ?? "?"} · {commit}
+      {builtAt ? ` · ${builtAt}` : ""}
+    </>
   );
 }
 

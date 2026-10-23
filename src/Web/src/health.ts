@@ -1,5 +1,7 @@
 // Types and fetch for GET /api/health (src/Api/Health/HealthController.cs).
 
+import type { BuildInfo } from "./build";
+
 export interface DatabaseHealth {
   reachable: boolean;
   serverVersion: string | null;
@@ -8,9 +10,11 @@ export interface DatabaseHealth {
   expectedMigrations: number;
 }
 
-// Outside Development the API sends only `status`; the details stay on dev machines.
+// Outside Development the API sends only `status` and `build`; the database details
+// stay on dev machines.
 export interface HealthResponse {
   status: "Healthy" | "Unhealthy";
+  build: BuildInfo;
   checkedAt?: string;
   database?: DatabaseHealth;
 }

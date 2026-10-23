@@ -105,6 +105,8 @@ code {
 
 button {
   font: inherit;
+  /* 44 px: the minimum touch target from CLAUDE.md. */
+  min-height: 2.75rem;
   padding: 0.4rem 1rem;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -116,6 +118,27 @@ button {
 button:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+a {
+  color: inherit;
+}
+
+.stale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--unknown);
+  border-radius: 8px;
+}
+
+.build {
+  margin-top: 3rem;
+  color: var(--muted);
+  font-size: 0.875rem;
 }
 
 @media (max-width: 36rem) {

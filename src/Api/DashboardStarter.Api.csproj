@@ -7,6 +7,17 @@
     <UserSecretsId>dashboard-starter-api</UserSecretsId>
   </PropertyGroup>
 
+  <!--
+    Build stamp, read back by Hosting/BuildInfo.cs. The deploy pipeline passes these with
+    dotnet publish -p:BuildNumber=57 -p:BuildCommit=<sha> -p:BuildTime=<UTC time>.
+    A local build passes nothing, so no attributes are written and BuildInfo reports nulls.
+  -->
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildNumber" Value="$(BuildNumber)" Condition="'$(BuildNumber)' != ''" />
+    <AssemblyMetadata Include="BuildCommit" Value="$(BuildCommit)" Condition="'$(BuildCommit)' != ''" />
+    <AssemblyMetadata Include="BuildTime" Value="$(BuildTime)" Condition="'$(BuildTime)' != ''" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Dapper" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
