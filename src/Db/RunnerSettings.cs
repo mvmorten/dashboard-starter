@@ -11,7 +11,7 @@ namespace DashboardStarter.Db;
 /// Read straight from environment variables, using the same names ASP.NET Core uses,
 /// so one setting works for both the runner and the API:
 /// <list type="bullet">
-/// <item>DOTNET_ENVIRONMENT: "Development" when started with <c>dotnet run</c> (from Properties/launchSettings.json). Unset means Production.</item>
+/// <item>DOTNET_ENVIRONMENT: "Development" when started with <c>dotnet run</c> (from Properties/launchSettings.json, which overrides the variable; pass <c>--no-launch-profile</c> to use the real environment). Unset means Production.</item>
 /// <item>ConnectionStrings__Default: the connection string. Required outside Development.</item>
 /// </list>
 /// </remarks>
