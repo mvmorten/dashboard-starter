@@ -259,6 +259,19 @@ npm run format:check         # Prettier (npm run format to fix)
 npm run build                # type-check and build
 ```
 
+### Security checks
+
+Free GitHub features, so none of them add a dependency to the project:
+
+- **CodeQL** (`.github/workflows/codeql.yml`) reads the C#, TypeScript, and workflow files on every pull request and once a week, looking for security bugs like SQL injection and XSS. Findings show up on the PR and in the Security tab.
+- **Dependabot** (`.github/dependabot.yml`) opens a weekly PR per ecosystem (NuGet, npm, GitHub Actions) with minor and patch updates grouped, plus immediate PRs for known advisories. Every update goes through CI like any other change.
+- **Secret scanning with push protection** blocks a push that contains something that looks like a key or password.
+- **Private vulnerability reporting**: how to report a problem is in [SECURITY.md](SECURITY.md).
+
+Changes that touch auth, tenant filtering, SQL, or the workflows also get a `/security-review` pass with Claude Code before the PR opens (see `CLAUDE.md`).
+
+**Forked the starter?** The workflow files come with you, but the GitHub settings don't. In your fork, go to **Settings > Advanced Security** and turn on Dependabot alerts, Dependabot security updates, secret scanning, push protection, and private vulnerability reporting, then update the contact details in `SECURITY.md`. Leave CodeQL's "default setup" off: the workflow file already runs CodeQL, and GitHub rejects its results while default setup is on.
+
 ### Deploying
 
 Every merge to `main` deploys to Azure once CI passes: the React build is served by the API from one App Service, the database is Azure SQL, and the pipeline runs `migrate` before the new code goes out. The one-time setup (Azure resources from Bicep, passwordless sign-in for GitHub, secrets, and an optional custom domain) is in [docs/deploy-azure.md](docs/deploy-azure.md). Forks skip the deploy until they set it up.
