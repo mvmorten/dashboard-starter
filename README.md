@@ -168,7 +168,7 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 | --- | --- | --- | --- |
 | 1 | [Why build another dashboard starter?](https://mvmorten.com/projects/dashboard-starter/why-another-dashboard-starter) | [v0.1](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.1) | Published |
 | 2 | [No magic: repo structure and local dev setup](https://mvmorten.com/projects/dashboard-starter/no-magic) | [v0.2](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.2) | Published |
-| 3 | [Ship It First: Deploying to Azure Before the First Feature](https://mvmorten.com/projects/dashboard-starter/ship-it) | [v0.3](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.3) | Published |
+| 3 | [Ship Early, Ship Often: Deploying to Azure Before the First Feature](https://mvmorten.com/projects/dashboard-starter/ship-early-ship-often) | [v0.3](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.3) | Published |
 | 4 | The app shell | v0.4 | Planned |
 | ... | More to come | | |
 
