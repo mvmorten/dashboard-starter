@@ -105,6 +105,9 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 - Passwords: Argon2id behind an `IPasswordHasher` interface; parameters m=19456 KiB, t=2, p=1, configurable; PHC string format; rehash on sign-in when parameters are weaker than current config.
 - Random values for anything security-related (tokens, salts, codes): `System.Security.Cryptography.RandomNumberGenerator` only. Store only a SHA-256 hash of tokens.
 - Cookies: `HttpOnly`, `Secure`, `SameSite`; antiforgery tokens on state-changing requests.
+- Before opening a PR that touches authentication, authorization, tenant filtering or RLS, cookies, tokens, SQL, file handling, or the workflows, run `/security-review` and put a one-line summary of its result in the PR description (findings fixed, or why they don't apply).
+- CodeQL runs on every PR from `.github/workflows/codeql.yml` (advanced setup). Keep CodeQL "default setup" off in the repo settings: GitHub rejects the workflow's results while it is on. Fix its findings rather than dismissing them; if one is a false positive, say why in the PR.
+- Security reports go through GitHub private vulnerability reporting (`SECURITY.md`). Never discuss an unfixed vulnerability in a public issue, PR, or commit message.
 
 ## Do not
 

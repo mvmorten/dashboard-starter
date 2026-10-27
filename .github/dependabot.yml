@@ -1,0 +1,55 @@
+version: 2
+
+# Dependabot opens pull requests to update dependencies. Each one goes through CI like any
+# other PR, so an update that breaks the build never merges.
+#
+# Weekly, with minor and patch updates grouped into one PR per ecosystem, so updates stay a
+# short weekly review instead of a stream of PRs. Security updates for known advisories are a
+# separate GitHub setting (Dependabot security updates) and open right away, not weekly.
+#
+# Not covered: the SQL Server image in docker-compose.yml and ci.yml. They have to change
+# together, and Dependabot would update only one of them. Bump both by hand.
+
+updates:
+  # NuGet: central package management, so every version is in Directory.Packages.props.
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Phoenix
+    groups:
+      nuget-minor-and-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: deps
+
+  # npm: the front end.
+  - package-ecosystem: npm
+    directory: /src/Web
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Phoenix
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Pinned to 6.0.x until typescript-eslint supports TypeScript 7 (see README, Dependencies).
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+    commit-message:
+      prefix: deps
+
+  # The actions used by the workflows (checkout, setup-dotnet, setup-node, codeql-action).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Phoenix
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
