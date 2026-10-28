@@ -19,7 +19,7 @@ An opinionated, open-source dashboard starter: React + TypeScript, ASP.NET Core,
 
 ## Stack
 
-- **Front end:** React + TypeScript, Vite. Library choices beyond that (UI kit, grid, data fetching, router) are decided in the app shell step (step 4); don't add them before then.
+- **Front end:** React + TypeScript, Vite. Chosen in the app shell step (step 4): plain CSS (no UI kit), React Router in declarative mode, TanStack Query for server data. A grid and form libraries are decided in their own steps; don't add them before then.
 - **API:** ASP.NET Core Web API with **controllers**, current .NET LTS.
 - **Database:** SQL Server, one shared database for all tenants.
 - **Data access:** Dapper, hand-written SQL inline in C#.

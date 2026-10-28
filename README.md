@@ -26,7 +26,7 @@ This repo aims to be:
 
 | Layer | Choice |
 | --- | --- |
-| Front end | React + TypeScript, built with Vite |
+| Front end | React + TypeScript, built with Vite. Plain CSS (no UI kit), React Router for pages, TanStack Query for server data |
 | API | ASP.NET Core Web API with controllers (C#, current .NET LTS) |
 | Database | SQL Server, one shared database for all tenants |
 | Data access | Dapper, with hand-written SQL inline in C# |
@@ -110,6 +110,9 @@ It's a principle, loosely held: it guides the decision, it doesn't rule out good
 | `Microsoft.Data.SqlClient` | API, Db runner | The SQL Server driver. .NET doesn't ship one; this is Microsoft's. |
 | `System.Security.Cryptography.Pkcs` | Security pin | Not used directly. SqlClient 7.1.1 pulls in 9.0.18, which has two denial-of-service advisories, so `Directory.Packages.props` pins it to the patched 10.0.13. Remove the pin once SqlClient depends on a patched version itself. |
 | `react`, `react-dom` | Front end | The UI library the front end is built on. |
+| `react-router` | Front end | Client-side routing: the URL changes and the right page renders without a reload, and back, forward, and deep links work. The browser has no built-in way to do that for a single-page app. We use only the declarative parts (`BrowserRouter`, `Routes`, `Route`, `NavLink`), not its data loaders or framework mode, so data fetching stays in our own code. |
+| `@tanstack/react-query` | Front end | Server data: caching, sharing one request between components, and re-checking when the tab regains focus. Doing that by hand with `useEffect` is where stale data, double requests, and missed cancellations come from, so this is a gain in correctness. It sits on a plain `fetch` client (`src/Web/src/api.ts`), with one hook per resource. |
+| `@tanstack/react-query-devtools` | Front end, dev | A panel that shows what is cached and why. Loaded in development only; a production build leaves it out. |
 | `vite` | Front end, dev | Dev server (including the `/api` proxy) and production bundler. |
 | `@vitejs/plugin-react` | Front end, dev | Lets Vite compile JSX and reload components in place while you edit. |
 | `typescript` | Front end, dev | Type checking; `npm run build` fails on type errors. Pinned to 6.0.x until `typescript-eslint` supports TypeScript 7. |
@@ -131,7 +134,7 @@ The goal is the 80% every dashboard app needs on day one:
 
 - [x] Solution layout: front end, API, and database projects in one repo
 - [x] Local dev environment with Docker Compose and seeded data
-- [ ] App shell: sidebar navigation, top bar with tenant switcher, responsive layout, light and dark themes
+- [x] App shell: sidebar navigation, top bar with tenant switcher, responsive layout, light and dark themes
 - [ ] Authentication: sign in, sign out, password reset
 - [ ] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
 - [ ] Users, roles, and permissions, enforced on both API and UI
@@ -169,7 +172,7 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 | 1 | [Why build another dashboard starter?](https://mvmorten.com/projects/dashboard-starter/why-another-dashboard-starter) | [v0.1](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.1) | Published |
 | 2 | [No magic: repo structure and local dev setup](https://mvmorten.com/projects/dashboard-starter/no-magic) | [v0.2](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.2) | Published |
 | 3 | [Ship Early, Ship Often: Deploying to Azure Before the First Feature](https://mvmorten.com/projects/dashboard-starter/ship-early-ship-often) | [v0.3](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.3) | Published |
-| 4 | The app shell | v0.4 | Planned |
+| 4 | The app shell | v0.4 | In progress |
 | ... | More to come | | |
 
 ## Getting started

@@ -57,6 +57,17 @@ public static class Program
     }
 
     app.MapControllers();
+
+    // Deep links and refresh: /health is a React route, not a file, so the server answers it
+    // with index.html and the router takes over. {*path:nonfile} skips anything that looks like
+    // a file (/missing.js stays a real 404), and unknown /api/* paths never get here because
+    // ApiNotFoundController answers them first. This is endpoint routing plumbing, not a
+    // minimal API endpoint.
+    if (!app.Environment.IsDevelopment())
+    {
+      app.MapFallbackToFile("{*path:nonfile}", "index.html");
+    }
+
     await app.RunAsync();
     return 0;
   }

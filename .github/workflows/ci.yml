@@ -115,6 +115,52 @@ jobs:
           cat health.json
           grep -q '"status":"Healthy"' health.json
 
+      # Outside Development the API also serves the React build. Deep links (/health) must
+      # get index.html, but a mistyped API path or a missing file must stay a real 404.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/Web/package-lock.json
+
+      - name: Build the front end into the API's wwwroot
+        run: |
+          npm ci --prefix src/Web
+          npm run build --prefix src/Web
+          mkdir -p src/Api/wwwroot
+          cp -r src/Web/dist/. src/Api/wwwroot/
+
+      - name: SPA fallback serves deep links but keeps real 404s
+        env:
+          ASPNETCORE_ENVIRONMENT: Production
+          ASPNETCORE_URLS: http://localhost:5081
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+        run: |
+          dotnet run --no-build --configuration Release --project src/Api > api-prod.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:5081/api/health -o /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          cat api-prod.log
+
+          # A React route that isn't a file: 200 and the page.
+          curl -sf http://localhost:5081/health | grep -q '<div id="root">'
+
+          # Unknown API paths: 404 and JSON, never the page.
+          status=$(curl -s -o api-404.json -w '%{http_code}' http://localhost:5081/api/nope)
+          [ "$status" = "404" ]
+          grep -q '"status":404' api-404.json
+          ! grep -q '<div id="root">' api-404.json
+
+          # A missing file: a real 404, not the page.
+          status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5081/missing.js)
+          [ "$status" = "404" ]
+
+          # The tenants stub answers JSON (an array; empty or not depending on the seed).
+          curl -sf http://localhost:5081/api/tenants | grep -q '^\['
+
       - name: Editing an applied migration makes migrate fail
         run: |
           echo "-- edited after it was applied" >> sql/migrations/0001_tenants.sql

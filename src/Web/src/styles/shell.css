@@ -1,0 +1,276 @@
+/*
+  The app shell. Default (phone): a sticky top bar over the content, and the navigation
+  hidden in a <dialog> opened by the menu button. From 48rem up: the navigation is a
+  permanent column on the left. Keep 48rem in step with WIDE_QUERY in src/layout/AppShell.tsx.
+*/
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+/* ---- Top bar ---- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--topbar-height);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.topbar-brand {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.topbar-spacer {
+  flex: 1;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--target);
+  padding: 0;
+}
+
+.icon-button svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+/* ---- Navigation (the same <nav> in the dialog and in the sidebar) ---- */
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  height: var(--topbar-height);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.nav-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-3);
+  list-style: none;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.nav-link svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+}
+
+.nav-link:hover {
+  background: var(--accent-subtle);
+}
+
+.nav-link[aria-current="page"] {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---- Mobile drawer ---- */
+
+.drawer {
+  width: min(20rem, 85vw);
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.drawer::backdrop {
+  background: var(--backdrop);
+}
+
+/* ---- Content ---- */
+
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-6) var(--space-4);
+}
+
+/* main takes focus after navigation so keyboard users start at the top of the new page. */
+.content:focus {
+  outline: none;
+}
+
+.content-inner {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.stale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--unknown);
+  border-radius: var(--radius-md);
+}
+
+.build {
+  margin-top: var(--space-8);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* ---- Tenant switcher ---- */
+
+.tenant {
+  min-width: 0;
+}
+
+.tenant-name {
+  display: block;
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tenant-text {
+  color: var(--muted);
+}
+
+.tenant-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+
+.tenant-trigger svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
+/* A popover sits in the browser's top layer, so it is placed against the window, not its
+   parent. The top bar has a fixed height, so "just below it" is a known position. */
+.tenant-menu {
+  position: fixed;
+  inset: auto;
+  top: calc(var(--topbar-height) + var(--space-1));
+  right: var(--space-4);
+  width: min(18rem, calc(100vw - 2 * var(--space-4)));
+  margin: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--text);
+}
+
+.tenant-menu ul {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tenant-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  border: 0;
+  text-align: left;
+}
+
+.tenant-option:hover,
+.tenant-option[aria-current="true"] {
+  background: var(--accent-subtle);
+}
+
+.tenant-option svg,
+.tenant-option-spacer {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
+/* ---- Wide screens: permanent sidebar ---- */
+
+@media (min-width: 48rem) {
+  .shell {
+    display: grid;
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "sidebar top"
+      "sidebar main";
+  }
+
+  .sidebar {
+    grid-area: sidebar;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100dvh;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .topbar {
+    grid-area: top;
+  }
+
+  .content {
+    grid-area: main;
+    padding: var(--space-8);
+  }
+
+  /* The brand lives in the sidebar now. */
+  .topbar-brand {
+    display: none;
+  }
+}
