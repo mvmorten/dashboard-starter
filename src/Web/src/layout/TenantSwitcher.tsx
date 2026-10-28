@@ -1,6 +1,5 @@
-import { useId, useRef, type KeyboardEvent } from "react";
-import { storeTenantId } from "../tenants/tenantChoice";
-import { useCurrentTenant } from "../tenants/useCurrentTenant";
+import { useId, useRef, useState, type KeyboardEvent } from "react";
+import { readStoredTenantId, storeTenantId } from "../tenants/tenantChoice";
 import { useTenants } from "../tenants/useTenants";
 import { CheckIcon, ChevronDownIcon } from "./icons";
 
@@ -9,7 +8,7 @@ import { CheckIcon, ChevronDownIcon } from "./icons";
 // what it doesn't do: move focus into the list on open, and arrow keys between options.
 export default function TenantSwitcher() {
   const { data: tenants, isPending, isError } = useTenants();
-  const current = useCurrentTenant();
+  const [storedId, setStoredId] = useState(readStoredTenantId);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
@@ -21,9 +20,13 @@ export default function TenantSwitcher() {
     return <TenantText>Tenants unavailable</TenantText>;
   }
 
-  if (tenants.length === 0 || !current) {
+  if (tenants.length === 0) {
     return <TenantText>No tenants yet</TenantText>;
   }
+
+  // A saved id that no longer exists falls back to the first tenant.
+  const current =
+    tenants.find((tenant) => tenant.id === storedId) ?? tenants[0];
 
   // With one tenant there is nothing to choose, so no menu.
   if (tenants.length === 1) {
@@ -32,6 +35,7 @@ export default function TenantSwitcher() {
 
   function choose(id: number) {
     storeTenantId(id);
+    setStoredId(id);
     // Closing the popover returns focus to the trigger.
     menuRef.current?.hidePopover();
   }

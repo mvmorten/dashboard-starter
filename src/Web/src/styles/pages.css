@@ -63,8 +63,3 @@
     grid-column: auto;
   }
 }
-
-.tenant-note {
-  margin: calc(-1 * var(--space-4)) 0 var(--space-6);
-  color: var(--muted);
-}

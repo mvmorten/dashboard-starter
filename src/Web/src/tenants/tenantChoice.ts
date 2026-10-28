@@ -7,16 +7,7 @@
 
 const storageKey = "tenantId";
 
-// The switcher and any page that shows the current tenant read the same choice, so the
-// store tells subscribers (useSyncExternalStore in useCurrentTenant) when it changes.
-const listeners = new Set<() => void>();
-
-export function subscribeToTenantChoice(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
-function readStoredTenantId(): number | null {
+export function readStoredTenantId(): number | null {
   try {
     const stored = window.localStorage.getItem(storageKey);
     if (stored === null) {
@@ -31,25 +22,10 @@ function readStoredTenantId(): number | null {
   }
 }
 
-let chosenId: number | null | undefined;
-
-// Read once, then served from memory, so a blocked or unavailable localStorage still
-// keeps the choice for the life of the page.
-export function getTenantChoice(): number | null {
-  if (chosenId === undefined) {
-    chosenId = readStoredTenantId();
-  }
-
-  return chosenId;
-}
-
 export function storeTenantId(id: number): void {
-  chosenId = id;
   try {
     window.localStorage.setItem(storageKey, String(id));
   } catch {
     // Not remembering the choice is fine.
   }
-
-  listeners.forEach((listener) => listener());
 }

@@ -1,13 +1,11 @@
 import type { ReactNode } from "react";
 import type { DatabaseHealth } from "../health/health";
 import { useHealth } from "../health/useHealth";
-import { useCurrentTenant } from "../tenants/useCurrentTenant";
 import { usePageTitle } from "../layout/usePageTitle";
 
 export default function Health() {
   usePageTitle("Health");
   const { data, isFetching, refetch } = useHealth();
-  const tenant = useCurrentTenant();
 
   return (
     <>
@@ -15,12 +13,6 @@ export default function Health() {
       <p className="lead">
         Is everything connected? This page calls <code>GET /api/health</code>
         {import.meta.env.DEV ? " through the Vite proxy." : "."}
-      </p>
-
-      <p className="tenant-note">
-        Current tenant: <strong>{tenant ? tenant.name : "none"}</strong>. This
-        is your choice in the top bar, kept in this browser. The API doesn't use
-        it yet.
       </p>
 
       <ul className="checks">
