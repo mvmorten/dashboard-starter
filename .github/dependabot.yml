@@ -38,6 +38,10 @@ updates:
       # Pinned to 6.0.x until typescript-eslint supports TypeScript 7 (see README, Dependencies).
       - dependency-name: typescript
         update-types: [version-update:semver-major]
+      # Matches the Node major the project runs on: node-version in ci.yml (24). Newer type
+      # majors describe APIs that Node 24 doesn't have. Bump all three together by hand.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
     commit-message:
       prefix: deps
 
