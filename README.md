@@ -114,7 +114,7 @@ It's a principle, loosely held: it guides the decision, it doesn't rule out good
 | `@vitejs/plugin-react` | Front end, dev | Lets Vite compile JSX and reload components in place while you edit. |
 | `typescript` | Front end, dev | Type checking; `npm run build` fails on type errors. Pinned to 6.0.x until `typescript-eslint` supports TypeScript 7. |
 | `@types/react`, `@types/react-dom` | Front end, dev | Type definitions for React. |
-| `@types/node` | Front end, dev | Types for `vite.config.ts`, which runs in Node, not the browser. |
+| `@types/node` | Front end, dev | Types for `vite.config.ts`, which runs in Node, not the browser. Kept on the same major as the Node version CI uses (24), so the types only describe APIs that version has. |
 | `eslint`, `@eslint/js` | Front end, dev | Linting, with ESLint's recommended JavaScript rules. |
 | `typescript-eslint` | Front end, dev | Lets ESLint read TypeScript and adds TypeScript-aware rules. |
 | `eslint-plugin-react-hooks` | Front end, dev | Catches broken hook usage and missing effect dependencies, which are real bugs, not style. |
