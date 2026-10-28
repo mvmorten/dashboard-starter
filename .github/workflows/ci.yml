@@ -136,7 +136,10 @@ jobs:
           ASPNETCORE_URLS: http://localhost:5081
           ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
         run: |
-          dotnet run --no-build --configuration Release --project src/Api > api-prod.log 2>&1 &
+          # --no-launch-profile: the profile in launchSettings.json forces Development and port
+          # 5080, which would ignore the settings above and clash with the API from the
+          # previous step.
+          dotnet run --no-build --no-launch-profile --configuration Release --project src/Api > api-prod.log 2>&1 &
           for attempt in $(seq 1 30); do
             if curl -sf http://localhost:5081/api/health -o /dev/null; then
               break
