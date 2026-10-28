@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import Logo from "./Logo";
 import TenantSwitcher from "./TenantSwitcher";
 import ThemeToggle from "./ThemeToggle";
 import { MenuIcon } from "./icons";
@@ -24,6 +25,7 @@ export default function TopBar({ onOpenMenu }: TopBarProps) {
       )}
 
       <Link to="/" className="topbar-brand">
+        <Logo />
         Dashboard Starter
       </Link>
 

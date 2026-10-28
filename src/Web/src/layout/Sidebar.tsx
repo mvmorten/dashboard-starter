@@ -1,4 +1,5 @@
 import { NavLink } from "react-router";
+import Logo from "./Logo";
 import { CloseIcon, DashboardIcon, HealthIcon } from "./icons";
 
 interface SidebarProps {
@@ -11,7 +12,10 @@ export default function Sidebar({ onClose }: SidebarProps) {
   return (
     <>
       <div className="sidebar-head">
-        <p className="sidebar-title">Dashboard Starter</p>
+        <p className="sidebar-title">
+          <Logo />
+          Dashboard Starter
+        </p>
         {onClose && (
           <button
             type="button"

@@ -25,7 +25,16 @@
   background: var(--surface);
 }
 
+.logo {
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+}
+
 .topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
   overflow: hidden;
   font-weight: 700;
@@ -66,6 +75,9 @@
 }
 
 .sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
