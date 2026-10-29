@@ -20,3 +20,6 @@ dist/
 !.vscode/tasks.json
 .DS_Store
 Thumbs.db
+
+# The production front-end build copied next to the API (CI and local production-mode testing)
+src/Api/wwwroot/

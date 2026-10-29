@@ -3,7 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Dashboard Starter</title>
+    <!--
+      Applies a saved light or dark choice before the first paint, so there is no flash of
+      the wrong theme. Same logic as readTheme/applyTheme in src/theme.ts. If a
+      Content-Security-Policy is added later, this script needs a hash or nonce.
+    -->
+    <script>
+      try {
+        var theme = localStorage.getItem("theme");
+        if (theme === "light" || theme === "dark") {
+          document.documentElement.dataset.theme = theme;
+        }
+      } catch (error) {
+        // Storage is blocked: follow the system.
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

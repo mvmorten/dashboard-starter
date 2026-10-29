@@ -1,0 +1,65 @@
+/* Page content. The health page's checklist, from step 2. */
+
+.lead {
+  margin: 0 0 var(--space-8);
+  color: var(--muted);
+}
+
+.checks {
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.check {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-3) var(--space-4);
+}
+
+.check + .check {
+  border-top: 1px solid var(--border);
+}
+
+.check-detail {
+  grid-column: 2 / -1;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.check-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: var(--unknown);
+}
+
+.check-ok .check-dot {
+  background: var(--ok);
+}
+
+.check-failed .check-dot {
+  background: var(--failed);
+}
+
+.check-label {
+  font-weight: 600;
+}
+
+.check-status {
+  color: var(--muted);
+}
+
+@media (min-width: 36rem) {
+  .check {
+    grid-template-columns: auto 6rem 4.5rem 1fr;
+  }
+
+  .check-detail {
+    grid-column: auto;
+  }
+}

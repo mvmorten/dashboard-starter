@@ -1,0 +1,80 @@
+/*
+  Design tokens: every color, space, and radius the app uses, defined once.
+  Three theme states, chosen by the data-theme attribute on <html> (see src/theme.ts):
+    no attribute  follow the operating system (prefers-color-scheme)
+    "light"       always light
+    "dark"        always dark
+  The dark values appear twice below (OS preference, and the explicit choice) because CSS
+  can't share one block between a media query and an attribute selector. Edit both together.
+*/
+
+:root {
+  color-scheme: light;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+
+  --topbar-height: 3.5rem;
+  --sidebar-width: 15rem;
+  /* The smallest touch target from CLAUDE.md. */
+  --target: 2.75rem;
+
+  --text: #1f2328;
+  --muted: #59636e;
+  --background: #ffffff;
+  --surface: #f6f8fa;
+  --border: #d1d9e0;
+  --accent: #0b5cad;
+  --accent-subtle: #ddeeff;
+  --ok: #1a7f37;
+  --failed: #cf222e;
+  --unknown: #9a6700;
+  --backdrop: rgb(0 0 0 / 0.5);
+
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --text: #e6edf3;
+    --muted: #9198a1;
+    --background: #0d1117;
+    --surface: #151b23;
+    --border: #3d444d;
+    --accent: #58a6ff;
+    --accent-subtle: #17304d;
+    --ok: #3fb950;
+    --failed: #f85149;
+    --unknown: #d29922;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --text: #e6edf3;
+  --muted: #9198a1;
+  --background: #0d1117;
+  --surface: #151b23;
+  --border: #3d444d;
+  --accent: #58a6ff;
+  --accent-subtle: #17304d;
+  --ok: #3fb950;
+  --failed: #f85149;
+  --unknown: #d29922;
+}

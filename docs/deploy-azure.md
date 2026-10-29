@@ -174,7 +174,7 @@ To serve the app on your own domain, for example `dashboard.example.com`, with a
 
 3. Set the repository variable `CANONICAL_HOST` to the main name (`dashboard.example.com`) and run CI on `main` by hand to redeploy.
 
-With `CanonicalHost` set, the API permanently redirects every other host name, including `<APP>.azurewebsites.net`, to the canonical one. That matters from step 4 (authentication) on: cookies belong to one host, so a user who signed in on one name would be signed out on another. `/api/health` is answered on every host, so health checks keep working on the default name.
+With `CanonicalHost` set, the API permanently redirects every other host name, including `<APP>.azurewebsites.net`, to the canonical one. That matters from step 5 (authentication) on: cookies belong to one host, so a user who signed in on one name would be signed out on another. `/api/health` is answered on every host, so health checks keep working on the default name.
 
 The certificates renew automatically. Host names and certificates aren't in the Bicep file, so rerunning it leaves them alone.
 

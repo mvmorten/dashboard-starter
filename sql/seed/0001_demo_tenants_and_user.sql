@@ -1,6 +1,6 @@
 -- Development only. Two demo tenants and one user who belongs to both, so
 -- multi-tenancy is visible from day one. Safe to run more than once.
--- The demo user has no password yet; sign-in arrives in step 4.
+-- The demo user has no password yet; sign-in arrives in step 5.
 IF NOT EXISTS (SELECT 1 FROM dbo.Tenants WHERE Name = N'Acme Corporation')
 BEGIN
   INSERT INTO dbo.Tenants (Name) VALUES (N'Acme Corporation');
