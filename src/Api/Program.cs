@@ -112,8 +112,8 @@ public static class Program
 
     // Deep links and refresh: /health is a React route, not a file, so the server answers it
     // with index.html and the router takes over. {*path:nonfile} skips anything that looks like
-    // a file (/missing.js stays a real 404), and unknown /api/* paths never get here because
-    // ApiNotFoundController answers them first. This is endpoint routing plumbing, not a
+    // a file (MissingFileController answers /missing.js with a real 404), and unknown /api/*
+    // paths never get here because ApiNotFoundController answers them first. This is endpoint routing plumbing, not a
     // minimal API endpoint. Public: the page itself holds no data, and it's what shows the
     // sign-in screen.
     if (!app.Environment.IsDevelopment())
