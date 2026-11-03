@@ -90,7 +90,12 @@ sleep 3
 expect "$(status "$work/s" "$BASE/api/auth/me")" 401
 expect "$(sign_in "$work/s" ann@example.com a-brand-new-password)" 200
 
-echo "11. Too many sign-in attempts from one address: 429 with Retry-After"
+echo "11. Signing in with a hash made with weaker settings works (ci.yml then checks it was rehashed)"
+expect "$(sign_in "$work/w" weak@example.com a-long-enough-password)" 200
+
+# Keep this one last: it uses up this address's sign-in limit, so any sign-in after it
+# gets 429 until the window (Auth:SignInWindowSeconds) passes.
+echo "12. Too many sign-in attempts from one address: 429 with Retry-After"
 limited=no
 for attempt in $(seq 1 80); do
   code=$(curl -s -o /dev/null -D "$work/headers" -w '%{http_code}' -H 'Content-Type: application/json' \
@@ -99,8 +104,5 @@ for attempt in $(seq 1 80); do
 done
 expect "$limited" yes
 grep -qi '^retry-after:' "$work/headers"
-
-echo "12. Signing in with a hash made with weaker settings works (ci.yml then checks it was rehashed)"
-expect "$(sign_in "$work/w" weak@example.com a-long-enough-password)" 200
 
 echo "All auth checks passed."
