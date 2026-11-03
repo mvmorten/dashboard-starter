@@ -1,116 +1,97 @@
-import { useId, useRef, useState, type KeyboardEvent } from "react";
-import { readStoredTenantId, storeTenantId } from "../tenants/tenantChoice";
-import { useTenants } from "../tenants/useTenants";
+import { useQueryClient } from "@tanstack/react-query";
+import { useId, useRef, useState } from "react";
+import { currentTenant } from "../auth/me";
+import { switchTenant } from "../auth/session";
+import { useMe } from "../auth/useMe";
 import { CheckIcon, ChevronDownIcon } from "./icons";
+import { focusMenuOnOpen, moveMenuFocus } from "./menuKeyboard";
 
-// Built on the browser's own Popover API: the trigger button opens a popover that closes on
-// Escape or a click outside and gives focus back to the trigger, with no library. We add
-// what it doesn't do: move focus into the list on open, and arrow keys between options.
+// Built on the browser's own Popover API (see menuKeyboard.ts). The current tenant lives
+// in the auth cookie: choosing another one asks the API to switch, which checks the
+// membership and issues a new cookie, then everything on screen is fetched again.
 export default function TenantSwitcher() {
-  const { data: tenants, isPending, isError } = useTenants();
-  const [storedId, setStoredId] = useState(readStoredTenantId);
+  const queryClient = useQueryClient();
+  const { data: me } = useMe();
+  const [switching, setSwitching] = useState(false);
+  const [failed, setFailed] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
-  if (isPending) {
-    return <TenantText>Loading tenants...</TenantText>;
+  if (!me) {
+    return null;
   }
 
-  if (isError) {
-    return <TenantText>Tenants unavailable</TenantText>;
+  const current = currentTenant(me);
+  if (!current) {
+    return <TenantText>No tenant</TenantText>;
   }
-
-  if (tenants.length === 0) {
-    return <TenantText>No tenants yet</TenantText>;
-  }
-
-  // A saved id that no longer exists falls back to the first tenant.
-  const current =
-    tenants.find((tenant) => tenant.id === storedId) ?? tenants[0];
 
   // With one tenant there is nothing to choose, so no menu.
-  if (tenants.length === 1) {
+  if (me.tenants.length === 1) {
     return <TenantText>{current.name}</TenantText>;
   }
 
-  function choose(id: number) {
-    storeTenantId(id);
-    setStoredId(id);
+  async function choose(id: number) {
     // Closing the popover returns focus to the trigger.
     menuRef.current?.hidePopover();
-  }
-
-  function focusOptions(event: { newState?: string }) {
-    if (event.newState !== "open") {
+    if (id === current?.id) {
       return;
     }
 
-    const options = menuRef.current?.querySelectorAll("button");
-    const selected = menuRef.current?.querySelector<HTMLButtonElement>(
-      '[aria-current="true"]',
-    );
-    (selected ?? options?.[0])?.focus();
-  }
-
-  function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
-    const options = Array.from(
-      menuRef.current?.querySelectorAll("button") ?? [],
-    );
-    const index = options.indexOf(document.activeElement as HTMLButtonElement);
-
-    let target: number | null = null;
-    if (event.key === "ArrowDown") {
-      target = (index + 1) % options.length;
-    } else if (event.key === "ArrowUp") {
-      target = (index - 1 + options.length) % options.length;
-    } else if (event.key === "Home") {
-      target = 0;
-    } else if (event.key === "End") {
-      target = options.length - 1;
+    setSwitching(true);
+    setFailed(false);
+    try {
+      await switchTenant(queryClient, id);
+    } catch {
+      setFailed(true);
+    } finally {
+      setSwitching(false);
     }
-
-    if (target === null) {
-      return;
-    }
-
-    event.preventDefault();
-    options[target].focus();
   }
 
   return (
     <div className="tenant">
-      <button type="button" className="tenant-trigger" popoverTarget={menuId}>
+      <button
+        type="button"
+        className="tenant-trigger"
+        popoverTarget={menuId}
+        disabled={switching}
+      >
         <span className="tenant-name">
           <span className="visually-hidden">Tenant: </span>
           {current.name}
         </span>
         <ChevronDownIcon />
       </button>
+      <span role="status" className="visually-hidden">
+        {switching ? "Switching tenant" : ""}
+        {failed ? "Couldn't switch tenant. Try again." : ""}
+      </span>
 
       <div
         id={menuId}
         ref={menuRef}
         popover="auto"
-        className="tenant-menu"
+        className="topbar-menu"
         aria-label="Choose a tenant"
-        onToggle={focusOptions}
-        onKeyDown={moveFocus}
+        onToggle={(event) => focusMenuOnOpen(menuRef, event)}
+        onKeyDown={(event) => moveMenuFocus(menuRef, event)}
       >
         <ul>
-          {tenants.map((tenant) => {
+          {me.tenants.map((tenant) => {
             const isCurrent = tenant.id === current.id;
             return (
               <li key={tenant.id}>
                 <button
                   type="button"
-                  className="tenant-option"
+                  className="menu-option"
                   aria-current={isCurrent ? "true" : undefined}
                   onClick={() => choose(tenant.id)}
                 >
                   {isCurrent ? (
                     <CheckIcon />
                   ) : (
-                    <span className="tenant-option-spacer" />
+                    <span className="menu-option-spacer" />
                   )}
                   {tenant.name}
                 </button>

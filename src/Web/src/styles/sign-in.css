@@ -1,0 +1,126 @@
+/*
+  The sign-in page and form fields. Phone first: the card fills the width with a little
+  padding. From 30rem up it becomes a centered card with a border.
+*/
+
+.sign-in {
+  display: grid;
+  min-height: 100dvh;
+  padding: var(--space-6) var(--space-4);
+}
+
+.sign-in-card {
+  width: 100%;
+  max-width: 24rem;
+  margin: 0 auto;
+}
+
+.sign-in-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+}
+
+.sign-in-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-weight: 700;
+}
+
+.sign-in h1 {
+  margin-bottom: var(--space-6);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+
+.field label {
+  font-weight: 600;
+}
+
+.field input {
+  /* 16 px or more, or iOS zooms in when the field gets focus. */
+  font: inherit;
+  font-size: max(1rem, 16px);
+  min-height: var(--target);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  color: var(--text);
+}
+
+/* Empty until there's something to say; role="alert" announces it when it changes. */
+.form-error {
+  margin-bottom: var(--space-4);
+  color: var(--failed);
+}
+
+.form-error:empty {
+  margin: 0;
+}
+
+.primary-button {
+  width: 100%;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--background);
+  font-weight: 600;
+}
+
+.demo-account {
+  margin-top: var(--space-8);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.demo-account h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.125rem;
+}
+
+.demo-account p {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+}
+
+.demo-account dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+
+.demo-account dt {
+  font-weight: 600;
+}
+
+.demo-account dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.demo-account button {
+  width: 100%;
+}
+
+@media (min-width: 30rem) {
+  .sign-in {
+    align-content: center;
+  }
+
+  .sign-in-card {
+    padding: var(--space-8);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+}

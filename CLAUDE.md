@@ -16,6 +16,7 @@ An opinionated, open-source dashboard starter: React + TypeScript, ASP.NET Core,
 - Keep a short **build log** in the PR description while working: decisions made, things that surprised you, anything that broke and how it was fixed. Mistakes are part of the story; include them.
 - Each blog post gets a release tag `v0.N` (post number). The maintainer creates tags and releases.
 - If a change needs a decision that isn't covered here or in the README, stop and ask rather than picking a default.
+- Testing anything other than Development? Run the API and the Db runner with `dotnet run --no-launch-profile`. The launch profiles set the environment to Development and silently override whatever you set; this has bitten the deploy and the app shell steps.
 
 ## Stack
 
@@ -54,7 +55,8 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 - Always inject `ILogger<T>` (constructor injection). Not `ILogger`, not `ILoggerFactory`, not `app.Logger`.
 - Message templates with named placeholders, never interpolation: `_logger.LogInformation("Applied {Migration}", name)`, not `$"Applied {name}"`. CA2254 is an error, so the build enforces this.
 - Never log secrets: passwords, connection strings, tokens, cookies, password hashes.
-- Not yet: per-request scopes, JSON output, and a global exception handler come in later steps. Don't add them early.
+- Every request's log scope carries `UserId` and `TenantId` (`RequestLogScopeMiddleware`). Ids only, never names or emails.
+- Not yet: JSON output and a global exception handler come in later steps. Don't add them early.
 - The Db runner is a CLI: its per-file results go to `Console`. That's output, not logging.
 
 ## Dependencies
@@ -87,6 +89,7 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 - Every migration checks before it changes (`IF NOT EXISTS`, `IF COL_LENGTH(...) IS NULL`, `IF OBJECT_ID(...) IS NULL`).
 - To change something a migration already did, write a new migration.
 - Apply with `dotnet run --project src/Db -- migrate`; seed with `dotnet run --project src/Db -- seed`; create or update the API's login with `dotnet run --project src/Db -- app-user`.
+- Accounts: `create-user`, `set-password` (prompt or `--password-stdin`, never a password argument), and `demo` (the public demo account, from `DEMO_PASSWORD`).
 - The runner journals migrations in `SchemaVersions` (file name, content hash, applied at), skips applied ones, and fails if an applied migration's hash changed.
 - **The API never changes the schema.** At startup it only checks that no migrations are pending and refuses to start with a clear message naming the command to run.
 
@@ -97,14 +100,16 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 - One build stamp (CI run number, commit, UTC time) for the whole app: passed to `dotnet publish` as `-p:BuildNumber/BuildCommit/BuildTime` and to Vite as `VITE_BUILD_*`. The health check must see the deployed commit, not just "Healthy".
 - The deploy runs `migrate` **before** the new code starts, so the old code briefly runs against the new schema. Migrations must only add (new tables, nullable or defaulted columns). Removing or renaming something takes two deploys: stop using it, then drop it.
 - The API connects as its own login in the `app_runtime` role (data only, no DDL). Only the Db runner uses the admin login. Never give the API's login schema rights.
-- No Azure-specific code in the app. Configuration comes from environment variables (`ConnectionStrings__Default`, `CanonicalHost`).
+- No Azure-specific code in the app, with one exception: Data Protection keys live in Azure Blob Storage, wrapped by a Key Vault key, reached with the app's managed identity (`Hosting/DataProtectionSetup.cs`). It only switches on when `DataProtection__BlobUri` and `DataProtection__KeyId` are set. Configuration comes from environment variables (`ConnectionStrings__Default`, `CanonicalHost`, `DataProtection__*`, `Demo__*`, `ASPNETCORE_FORWARDEDHEADERS_ENABLED`).
 - Secrets live in the GitHub `demo` environment and App Service settings, never in the repo or the Bicep file. Bicep must not set app settings: it would replace the whole set and wipe the connection string.
 
 ## Security rules
 
 - Passwords: Argon2id behind an `IPasswordHasher` interface; parameters m=19456 KiB, t=2, p=1, configurable; PHC string format; rehash on sign-in when parameters are weaker than current config.
 - Random values for anything security-related (tokens, salts, codes): `System.Security.Cryptography.RandomNumberGenerator` only. Store only a SHA-256 hash of tokens.
-- Cookies: `HttpOnly`, `Secure`, `SameSite`; antiforgery tokens on state-changing requests.
+- Cookies: `HttpOnly`, `Secure`, `SameSite`; antiforgery tokens on state-changing requests (one global filter, `Auth/AntiforgeryFilter.cs`). Deployed cookie names start with `__Host-`; Development drops the prefix and `Secure` follows the request, because the Vite proxy is plain http (`Auth/AuthCookies.cs`).
+- Every endpoint requires a signed-in user (fallback policy). Opt out only with an explicit `[AllowAnonymous]`.
+- Sign-in failures all get one generic message, and unknown emails still run a hash, so nothing reveals which accounts exist.
 - Before opening a PR that touches authentication, authorization, tenant filtering or RLS, cookies, tokens, SQL, file handling, or the workflows, run `/security-review` and put a one-line summary of its result in the PR description (findings fixed, or why they don't apply).
 - CodeQL runs on every PR from `.github/workflows/codeql.yml` (advanced setup). Keep CodeQL "default setup" off in the repo settings: GitHub rejects the workflow's results while it is on. Fix its findings rather than dismissing them; if one is a false positive, say why in the PR.
 - Security reports go through GitHub private vulnerability reporting (`SECURITY.md`). Never discuss an unfixed vulnerability in a public issue, PR, or commit message.

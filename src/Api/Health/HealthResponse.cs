@@ -26,9 +26,15 @@ public sealed record HealthResponse(
 /// <param name="SchemaVersion">The latest applied migration, such as "0004_security_schema.sql".</param>
 /// <param name="AppliedMigrations">How many migrations the database has recorded.</param>
 /// <param name="ExpectedMigrations">How many migrations this build of the API knows about.</param>
+/// <param name="SessionTenantId">
+/// The TenantId this request's connection carries in SESSION_CONTEXT, the value Row-Level
+/// Security filters on. Null when nobody is signed in. Lets you (and CI) see that the
+/// connection factory sets it from the signed-in user's current tenant.
+/// </param>
 public sealed record DatabaseHealth(
   bool Reachable,
   string? ServerVersion,
   string? SchemaVersion,
   int AppliedMigrations,
-  int ExpectedMigrations);
+  int ExpectedMigrations,
+  int? SessionTenantId);

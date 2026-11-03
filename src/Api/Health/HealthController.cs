@@ -5,6 +5,7 @@ using DashboardStarter.Api.Database;
 using DashboardStarter.Api.Hosting;
 using DashboardStarter.Db.Scripts;
 using Dapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -18,8 +19,10 @@ namespace DashboardStarter.Api.Health;
 /// Reports whether the API is up and can reach the database. Returns 200 when healthy
 /// and 503 when the database can't be reached, so a load balancer can use it as-is.
 /// Every response says which build is running; server and migration details are Development only.
+/// Public: load balancers and the deploy pipeline call it without signing in.
 /// </summary>
 [ApiController]
+[AllowAnonymous]
 [Route("api/health")]
 public sealed class HealthController : ControllerBase
 {
@@ -61,7 +64,8 @@ public sealed class HealthController : ControllerBase
       SELECT
         CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128)) AS ServerVersion,
         (SELECT TOP (1) ScriptName FROM dbo.SchemaVersions ORDER BY ScriptName DESC) AS SchemaVersion,
-        (SELECT COUNT(*) FROM dbo.SchemaVersions) AS AppliedMigrations;
+        (SELECT COUNT(*) FROM dbo.SchemaVersions) AS AppliedMigrations,
+        CAST(SESSION_CONTEXT(N'TenantId') AS int) AS SessionTenantId;
       """;
 
     int expectedMigrations = ScriptCatalog.Migrations.Count;
@@ -71,14 +75,15 @@ public sealed class HealthController : ControllerBase
       SchemaRow row = await connection.QuerySingleAsync<SchemaRow>(
         new CommandDefinition(sql, cancellationToken: cancellationToken));
 
-      return new DatabaseHealth(true, row.ServerVersion, row.SchemaVersion, row.AppliedMigrations, expectedMigrations);
+      return new DatabaseHealth(
+        true, row.ServerVersion, row.SchemaVersion, row.AppliedMigrations, expectedMigrations, row.SessionTenantId);
     }
     catch (SqlException exception)
     {
       _logger.LogWarning(exception, "Health check couldn't reach the database.");
-      return new DatabaseHealth(false, null, null, 0, expectedMigrations);
+      return new DatabaseHealth(false, null, null, 0, expectedMigrations, null);
     }
   }
 
-  private sealed record SchemaRow(string ServerVersion, string? SchemaVersion, int AppliedMigrations);
+  private sealed record SchemaRow(string ServerVersion, string? SchemaVersion, int AppliedMigrations, int? SessionTenantId);
 }

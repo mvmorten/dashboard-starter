@@ -204,9 +204,11 @@
   flex: none;
 }
 
+/* ---- Top bar menus (tenant switcher, user menu) ---- */
+
 /* A popover sits in the browser's top layer, so it is placed against the window, not its
    parent. The top bar has a fixed height, so "just below it" is a known position. */
-.tenant-menu {
+.topbar-menu {
   position: fixed;
   inset: auto;
   top: calc(var(--topbar-height) + var(--space-1));
@@ -220,7 +222,7 @@
   color: var(--text);
 }
 
-.tenant-menu ul {
+.topbar-menu ul {
   display: grid;
   gap: var(--space-1);
   margin: 0;
@@ -228,7 +230,7 @@
   list-style: none;
 }
 
-.tenant-option {
+.menu-option {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -237,16 +239,53 @@
   text-align: left;
 }
 
-.tenant-option:hover,
-.tenant-option[aria-current="true"] {
+.menu-option:hover,
+.menu-option[aria-current="true"] {
   background: var(--accent-subtle);
 }
 
-.tenant-option svg,
-.tenant-option-spacer {
+.menu-option svg,
+.menu-option-spacer {
   width: 1rem;
   height: 1rem;
   flex: none;
+}
+
+/* ---- User menu ---- */
+
+.user-identity {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.user-identity p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.user-name {
+  font-weight: 600;
+}
+
+.user-email {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* No tenant yet, and other messages above a page. */
+.notice {
+  margin: 0 0 var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+/* Loading or failed before the shell can show. */
+.page-status {
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
 }
 
 /* ---- Wide screens: permanent sidebar ---- */
