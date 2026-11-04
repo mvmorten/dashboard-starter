@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import Logo from "./Logo";
 import TenantSwitcher from "./TenantSwitcher";
-import ThemeToggle from "./ThemeToggle";
+import UserMenu from "./UserMenu";
 import { MenuIcon } from "./icons";
 
 interface TopBarProps {
@@ -32,7 +32,7 @@ export default function TopBar({ onOpenMenu }: TopBarProps) {
       <div className="topbar-spacer" />
 
       <TenantSwitcher />
-      <ThemeToggle />
+      <UserMenu />
     </header>
   );
 }

@@ -1,4 +1,4 @@
 namespace DashboardStarter.Api.Tenants;
 
-/// <summary>One tenant in the GET /api/tenants list.</summary>
+/// <summary>A tenant the signed-in user belongs to, as listed in GET /api/auth/me.</summary>
 public sealed record TenantResponse(int Id, string Name);

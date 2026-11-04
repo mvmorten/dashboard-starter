@@ -4,7 +4,7 @@ An opinionated, open-source dashboard starter for building real business apps wi
 
 Clone it, rename it, and start on your actual product instead of rebuilding auth, layout, and plumbing for the tenth time.
 
-**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Right now that's a health check page: front end, API, and database, all connected.
+**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Sign in with the shared demo account: the sign-in page shows its email and password, and **Use demo account** fills them in. Everyone uses the same account, so don't put anything private in it. You land in the "Demo" tenant; the user menu at the top right signs you out.
 
 > **Status:** Just getting started. This project is being built in public, and every step is documented in a blog series. Expect the code to change quickly while the foundation takes shape.
 
@@ -46,7 +46,7 @@ This repo aims to be:
 - **Row-Level Security is the safety net.** The API puts the current tenant in `SESSION_CONTEXT` on each connection, and a security policy filters every tenant-owned table. A query that forgets its `WHERE TenantId = @TenantId` still can't see another tenant's rows.
 - **Roles are per tenant.** You can be an admin in one tenant and read-only in another (`TenantUserRoles`).
 - **Switching tenants.** With one tenant you go straight in. With several, you land in the one you used last and can switch from the top bar. The auth cookie holds your user and current tenant; switching checks your membership and issues a new cookie.
-- **Removing access works right away.** Memberships can be disabled per tenant, and the API rechecks membership on each request (briefly cached).
+- **Removing access works right away.** Memberships can be disabled per tenant, and the API rechecks membership on each request, cached for at most a minute (`Auth:SessionCheckSeconds`). The same check ends every session of a user whose password changed or who is locked out.
 - The development seed creates two demo tenants and a demo user who belongs to both. A real deployment starts empty: create your first tenant, and if your app only ever needs one, you can ignore the rest.
 
 ## Database conventions
@@ -108,6 +108,10 @@ It's a principle, loosely held: it guides the decision, it doesn't rule out good
 | --- | --- | --- |
 | `Dapper` | API, Db runner | Maps query results to C# objects. Hand-written row mapping (column names as strings, casts, null checks) is repetitive code that breaks quietly. Dapper does only that; the SQL stays ours. |
 | `Microsoft.Data.SqlClient` | API, Db runner | The SQL Server driver. .NET doesn't ship one; this is Microsoft's. |
+| `Konscious.Security.Cryptography.Argon2` | API, Db runner | Argon2id password hashing. .NET has no built-in Argon2, and the built-in alternative (PBKDF2) isn't memory-hard, so a GPU can try passwords far faster. Earns its place on safety. It does the algorithm only; the salt, the PHC format, constant-time comparison, and rehashing are our code (`src/Db/Passwords`). Checked against the reference implementation (argon2-cffi) in both directions. |
+| `Azure.Extensions.AspNetCore.DataProtection.Blobs` | API | Keeps the Data Protection keys (which encrypt the sign-in cookie) in Azure Blob Storage, so a deploy or restart doesn't sign everyone out. Only used when `DataProtection__BlobUri` is set. |
+| `Azure.Extensions.AspNetCore.DataProtection.Keys` | API | Encrypts those keys with a Key Vault key that never leaves the vault, so a copy of the blob alone is useless. Safety. |
+| `Azure.Identity` | API | Lets the app sign in to Storage and Key Vault with its managed identity, so no storage key or secret sits in its settings. |
 | `System.Security.Cryptography.Pkcs` | Security pin | Not used directly. SqlClient 7.1.1 pulls in 9.0.18, which has two denial-of-service advisories, so `Directory.Packages.props` pins it to the patched 10.0.13. Remove the pin once SqlClient depends on a patched version itself. |
 | `react`, `react-dom` | Front end | The UI library the front end is built on. |
 | `react-router` | Front end | Client-side routing: the URL changes and the right page renders without a reload, and back, forward, and deep links work. The browser has no built-in way to do that for a single-page app. We use only the declarative parts (`BrowserRouter`, `Routes`, `Route`, `NavLink`), not its data loaders or framework mode, so data fetching stays in our own code. |
@@ -135,7 +139,8 @@ The goal is the 80% every dashboard app needs on day one:
 - [x] Solution layout: front end, API, and database projects in one repo
 - [x] Local dev environment with Docker Compose and seeded data
 - [x] App shell: sidebar navigation, top bar with tenant switcher, responsive layout, light and dark themes
-- [ ] Authentication: sign in, sign out, password reset
+- [x] Authentication: sign in and sign out, lockout, a shared demo account
+- [ ] Password reset and change password
 - [ ] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
 - [ ] Users, roles, and permissions, enforced on both API and UI
 - [ ] A reusable data grid with server-side paging, sorting, and filtering
@@ -185,7 +190,7 @@ From the repo root:
 cp .env.example .env                       # local dev settings (gitignored)
 docker compose up -d --wait                # start SQL Server and wait until it's ready
 dotnet run --project src/Db -- migrate     # create the database and schema
-dotnet run --project src/Db -- seed        # add demo data (Development only)
+dotnet run --project src/Db -- seed        # add demo data and a demo user (Development only)
 dotnet run --project src/Api               # API on http://localhost:5080
 ```
 
@@ -197,7 +202,7 @@ npm install
 npm run dev                                # front end on http://localhost:5173
 ```
 
-Open <http://localhost:5173>. You should see three green checks: the front end, the API, and the database, with the schema version the database is on.
+Open <http://localhost:5173> and sign in as the seeded user: **`demo@example.com`**, password **`LocalDevOnly!Demo1`** (the sign-in page shows them too, with a button that fills them in). Like the SQL Server password in `.env.example`, that password is for your laptop only; `seed` refuses to run anywhere but Development. You'll land in one of the two demo tenants and can switch to the other from the top bar. The Health page shows three green checks: the front end, the API, and the database, with the schema version the database is on.
 
 ![The health check page: front end, API, and database all ok, with the SQL Server version and schema version 0004_security_schema.sql](docs/images/health-check.png)
 
@@ -205,9 +210,20 @@ What just happened:
 
 - **Docker** runs SQL Server 2025 only, on port 1433, with its data in a named volume (`sqlserver-data`) so it survives restarts.
 - **`migrate`** creates the `DashboardStarter` database if it's missing, runs any new scripts in `sql/migrations`, then reruns everything in `sql/programmable`. It prints `applied`, `skipped`, or `failed` for each file. Run it as often as you like; the second run skips everything.
-- **`seed`** adds two demo tenants (Acme Corporation and Globex Industries) and one demo user, `demo@example.com`, who belongs to both. It refuses to run outside Development.
+- **`seed`** adds two demo tenants (Acme Corporation and Globex Industries) and one demo user, `demo@example.com`, who belongs to both and has the password above. It refuses to run outside Development.
 - **The API** checks at startup that no migrations are pending. If one is, it refuses to start and tells you to run `migrate`. It never changes the schema itself.
 - **The front end** runs on the Vite dev server, which forwards `/api` to the API, so the browser only ever talks to one origin.
+
+**More users.** There's no sign-up page yet; accounts are made with the Db runner, which prompts for the password without showing it:
+
+```
+dotnet run --project src/Db -- create-user --email ann@example.com --name "Ann Example" --tenant "Acme Corporation"
+dotnet run --project src/Db -- set-password --email ann@example.com     # also signs out her other sessions
+```
+
+`--tenant` takes a tenant's id or name; run `create-user` again with another tenant to add a second membership. Passwords are never accepted as arguments, which would end up in your shell history. For scripts, pipe the password in and add `--password-stdin`.
+
+**Testing as Production?** Use `dotnet run --no-launch-profile` for both the API and the Db runner. Without it, `dotnet run` applies the project's launch profile, which sets the environment to Development whatever you set yourself.
 
 **Using VS Code?** The repo includes launch configurations (Run and Debug, or F5): `API`, `Db: migrate`, `Db: seed`, `Web (Chrome)`, and `API + Web` for the whole app. They do the same as the commands above, with the debugger attached. You still start SQL Server with `docker compose up -d --wait` and run `npm install` in `src/Web` once. The .NET configurations need the C# extension (`ms-dotnettools.csharp`); VS Code offers to install it.
 
@@ -241,7 +257,7 @@ For the API you can use a user secret instead: `dotnet user-secrets set "Connect
 
 ```
 /sql                 schema scripts (see "Schema scripts" above)
-/src/Db              the migration runner: `migrate`, `seed`, and `app-user`
+/src/Db              the Db runner: `migrate`, `seed`, `app-user`, and the account commands (`create-user`, `set-password`, `demo`)
 /src/Api             ASP.NET Core Web API (controllers)
 /src/Web             React + TypeScript front end (Vite)
 /infra              Bicep for the Azure resources (see docs/deploy-azure.md)
@@ -261,6 +277,8 @@ npm run lint                 # ESLint
 npm run format:check         # Prettier (npm run format to fix)
 npm run build                # type-check and build
 ```
+
+CI also runs the API against a real SQL Server and checks sign-in end to end with curl: wrong passwords, lockout, the demo account, antiforgery, switching tenants, and sessions ending after a password change. The script is [`.github/scripts/auth-checks.sh`](.github/scripts/auth-checks.sh), and it runs locally too (see the comment at its top).
 
 ### Security checks
 
@@ -302,6 +320,12 @@ It does a lot you can't easily see, which makes it hard to trace why it behaves 
 **Why not JWT?**
 Cookies, because the only client is a browser on the same site. An `HttpOnly` cookie can't be read by JavaScript, so a script injection bug can't steal the session, and a session can be revoked immediately. CSRF is handled with `SameSite` cookies and antiforgery tokens. If you add a mobile app or a public API, add token auth for those clients alongside the cookies.
 
+**Why are the cookie names different locally?**
+Deployed, the sign-in and antiforgery cookies are named `__Host-ds-auth`, `__Host-ds-af`, and `__Host-ds-xsrf`, and always `Secure`. The `__Host-` prefix makes the browser reject the cookie unless it's Secure, set for the whole site, and tied to this one host name, so no subdomain can plant or overwrite it. Locally the front end runs on plain `http://localhost` through the Vite proxy: ASP.NET Core's antiforgery refuses a non-HTTPS request when its cookie must be Secure, and Safari won't keep Secure cookies on `http://localhost` at all. So in Development only, the names lose the prefix (`ds-auth`, `ds-af`, `ds-xsrf`) and `Secure` follows the request. It's one place in the code, `src/Api/Auth/AuthCookies.cs`, and CI checks the deployed names and flags.
+
+**Why is there Azure code in the app?**
+Only for one thing: the keys that encrypt the sign-in cookie. They have to outlive a deploy, or every deploy signs everyone out, and they're worth protecting, because whoever has them can forge a session for any user. On Azure they live in Blob Storage, encrypted by Key Vault, reached with the app's managed identity (`src/Api/Hosting/DataProtectionSetup.cs`). Without its two settings the app uses ASP.NET Core's local default, so it still runs anywhere; a fork hosted elsewhere swaps in that platform's equivalent.
+
 **Why Argon2id for passwords?**
 It's OWASP's first recommendation. It's memory-hard, so each guess costs memory as well as CPU, which takes away most of an attacker's GPU advantage. Hashes are stored with their settings, so the settings can be raised later and users are rehashed automatically when they sign in.
 
@@ -312,7 +336,7 @@ A database that changes because you started the app is hidden behavior. You run 
 So "the API never changes the schema" is enforced by SQL Server, not just promised by our code. The deploy pipeline runs `migrate` with an admin login. The API connects as a separate login in the `app_runtime` role, which can read and write data but can't create, alter, or drop anything. If the API is ever compromised, the attacker gets the same limits. `dotnet run --project src/Db -- app-user` creates or updates that login.
 
 **Why Azure?**
-It's the natural home for a .NET and SQL Server app, and App Service plus Azure SQL means no servers or containers to manage. The app itself has nothing Azure-specific in it: settings come from environment variables, and it runs anywhere .NET and SQL Server do. Azure is the one deployment path we document and test, the same way Docker is the one local setup.
+It's the natural home for a .NET and SQL Server app, and App Service plus Azure SQL means no servers or containers to manage. Settings come from environment variables, and the app runs anywhere .NET and SQL Server do. The one Azure-specific piece is where the cookie encryption keys are kept (see above), and it switches off without its settings. Azure is the one deployment path we document and test, the same way Docker is the one local setup.
 
 **Why Docker for the database?**
 It's the one setup that works the same on Windows, Mac, and Linux, with the same SQL Server version as CI. Docker only runs the database, so you debug the API and front end normally.

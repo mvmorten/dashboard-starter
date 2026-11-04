@@ -79,6 +79,39 @@ jobs:
           dotnet run --no-build --configuration Release --project src/Db -- seed
           dotnet run --no-build --configuration Release --project src/Db -- seed
 
+      # Accounts for the sign-in checks below. Passwords go in on standard input, never as
+      # arguments. weak@example.com is hashed with weaker settings on purpose, so signing in
+      # can prove the API rehashes it.
+      - name: Create users
+        run: |
+          db="dotnet run --no-build --configuration Release --project src/Db --"
+          echo 'a-long-enough-password' | $db create-user --email ann@example.com --name "Ann Example" --tenant "Acme Corporation" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email ann@example.com --name "Ann Example" --tenant "Globex Industries" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email locked@example.com --name "Locked Out" --tenant "Acme Corporation" --password-stdin
+          echo 'a-long-enough-password' | PasswordHashing__Iterations=1 $db create-user --email weak@example.com --name "Weak Hash" --password-stdin
+
+          # A password on the command line is refused outright.
+          if $db set-password --email ann@example.com --password oops; then
+            echo "set-password accepted a password argument."
+            exit 1
+          fi
+
+          # Stored as a PHC string with the configured settings.
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
+          $sqlcmd -Q "SET NOCOUNT ON; SELECT PasswordHash FROM dbo.Users WHERE Email = 'ann@example.com';" | grep -q '^\$argon2id\$v=19\$m=19456,t=2,p=1\$'
+          $sqlcmd -Q "SET NOCOUNT ON; SELECT PasswordHash FROM dbo.Users WHERE Email = 'weak@example.com';" | grep -q '^\$argon2id\$v=19\$m=19456,t=1,p=1\$'
+
+      - name: Demo account (twice; the second run changes nothing)
+        env:
+          DEMO_PASSWORD: published-demo-pass
+        run: |
+          dotnet run --no-build --configuration Release --project src/Db -- demo
+          output=$(dotnet run --no-build --configuration Release --project src/Db -- demo)
+          echo "$output"
+          echo "$output" | grep -q "exists   tenant Demo"
+          echo "$output" | grep -q "exists   user guest@example.com"
+          echo "$output" | grep -q "unchanged password"
+
       # The API connects with its own login, which can read and write data but not change
       # the schema (sql/migrations/0005_app_runtime_role.sql). Prove both halves.
       - name: Create the API's login
@@ -100,9 +133,14 @@ jobs:
           fi
           echo "CREATE TABLE was refused, as it should be."
 
+      # Keeps running in the background for the sign-in checks. SessionCheckSeconds=2 lets the
+      # set-password check see the session end in seconds rather than a minute, and a higher
+      # sign-in limit leaves room for the lockout checks before the rate-limit check.
       - name: API starts and reports healthy (as the app login)
         env:
           ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          Auth__SessionCheckSeconds: "2"
+          Auth__SignInPermitLimit: "50"
         run: |
           dotnet run --no-build --configuration Release --project src/Api > api.log 2>&1 &
           for attempt in $(seq 1 30); do
@@ -114,6 +152,18 @@ jobs:
           cat api.log
           cat health.json
           grep -q '"status":"Healthy"' health.json
+
+      # Sign in and out, wrong passwords, lockout, the demo account, antiforgery, switching
+      # tenants, SESSION_CONTEXT, set-password ending a session, and the rate limit.
+      - name: Sign-in checks
+        env:
+          DB: dotnet run --no-build --configuration Release --project src/Db --
+        run: bash .github/scripts/auth-checks.sh
+
+      - name: Signing in rehashed the weaker hash
+        run: |
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
+          $sqlcmd -Q "SET NOCOUNT ON; SELECT PasswordHash FROM dbo.Users WHERE Email = 'weak@example.com';" | grep -q '^\$argon2id\$v=19\$m=19456,t=2,p=1\$'
 
       # Outside Development the API also serves the React build. Deep links (/health) must
       # get index.html, but a mistyped API path or a missing file must stay a real 404.
@@ -130,10 +180,14 @@ jobs:
           mkdir -p src/Api/wwwroot
           cp -r src/Web/dist/. src/Api/wwwroot/
 
-      - name: SPA fallback serves deep links but keeps real 404s
+      # Also the production cookie and HTTPS settings. ASPNETCORE_FORWARDEDHEADERS_ENABLED is
+      # what the deploy sets on App Service, so a request with X-Forwarded-Proto: https counts
+      # as HTTPS here, the way one that came through Azure's front end does.
+      - name: Production mode (SPA fallback, cookies, HSTS)
         env:
           ASPNETCORE_ENVIRONMENT: Production
           ASPNETCORE_URLS: http://localhost:5081
+          ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
           ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
         run: |
           # --no-launch-profile: the profile in launchSettings.json forces Development and port
@@ -155,14 +209,47 @@ jobs:
           status=$(curl -s -o api-404.json -w '%{http_code}' http://localhost:5081/api/nope)
           [ "$status" = "404" ]
           grep -q '"status":404' api-404.json
-          ! grep -q '<div id="root">' api-404.json
+          # (An if, not "! grep": bash's -e ignores a command that starts with !, so that
+          # form could never fail the step.)
+          if grep -q '<div id="root">' api-404.json; then
+            echo "An unknown API path got the page."
+            exit 1
+          fi
 
           # A missing file: a real 404, not the page.
           status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5081/missing.js)
           [ "$status" = "404" ]
 
-          # The tenants stub answers JSON (an array; empty or not depending on the seed).
-          curl -sf http://localhost:5081/api/tenants | grep -q '^\['
+          # Signed out: the API answers 401 as JSON, never a redirect to a login page.
+          status=$(curl -s -o me.json -w '%{http_code}' http://localhost:5081/api/auth/me)
+          [ "$status" = "401" ]
+          grep -q '"status":401' me.json
+
+          # No demo account configured: the sign-in page shows none.
+          curl -sf http://localhost:5081/api/auth/sign-in-info | grep -q '"demoAccount":null'
+
+          # Deployed cookies: __Host- names, Secure, HttpOnly where script mustn't read them.
+          https="-H X-Forwarded-Proto:https"
+          curl -sf $https -D af.txt -c jar -b jar -o /dev/null http://localhost:5081/api/auth/antiforgery
+          cat af.txt
+          grep -qi '^set-cookie: __Host-ds-af=.*; secure; samesite=strict; httponly' af.txt
+          grep -qi '^set-cookie: __Host-ds-xsrf=.*; secure; samesite=strict' af.txt
+          token=$(awk '$6 == "__Host-ds-xsrf" { print $7 }' jar)
+          curl -s $https -D signin.txt -c jar -b jar -o /dev/null -H "X-XSRF-TOKEN: $token" -H 'Content-Type: application/json' \
+            -d '{"email":"guest@example.com","password":"published-demo-pass"}' http://localhost:5081/api/auth/sign-in
+          cat signin.txt
+          grep -q '^HTTP/1.1 200' signin.txt
+          grep -qi '^set-cookie: __Host-ds-auth=.*; secure; samesite=lax; httponly' signin.txt
+          curl -sf $https -b jar http://localhost:5081/api/auth/me | grep -q '"isDemo":true'
+
+          # HSTS on HTTPS requests, without includeSubDomains or preload. (Never sent to
+          # localhost, so this asks for another host name.)
+          curl -s $https -H 'Host: dashboard.example.com' -D hsts.txt -o /dev/null http://localhost:5081/api/health
+          grep -i '^strict-transport-security: max-age=31536000' hsts.txt
+          if grep -qi 'includesubdomains\|preload' hsts.txt; then
+            echo "HSTS must not include subdomains or preload."
+            exit 1
+          fi
 
       - name: Editing an applied migration makes migrate fail
         run: |
