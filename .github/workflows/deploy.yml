@@ -198,9 +198,15 @@ jobs:
             echo "No Data Protection key storage in $AZURE_RESOURCE_GROUP. Run infra/main.bicep again (docs/deploy-azure.md, step 2)."
             exit 1
           fi
+          # The key is a child of the vault, so name the parent with --parent.
+          # The shorter "--resource-type .../vaults/keys --name vault/key" form returns Not Found.
           key_id=$(az resource show --resource-group "$AZURE_RESOURCE_GROUP" \
-            --resource-type Microsoft.KeyVault/vaults/keys --name "$vault/dataprotection" \
+            --namespace Microsoft.KeyVault --parent "vaults/$vault" --resource-type keys --name dataprotection \
             --query properties.keyUriWithVersion --output tsv)
+          if [ -z "$key_id" ]; then
+            echo "No dataprotection key in vault $vault. Run infra/main.bicep again (docs/deploy-azure.md, step 2)."
+            exit 1
+          fi
 
           if [ "$DEMO_ENABLED" != "true" ]; then
             DEMO_EMAIL=""
