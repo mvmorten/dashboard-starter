@@ -21,7 +21,7 @@ public static class Program
       dotnet run --project src/Db -- set-password --email <email> [--password-stdin]
           Set a user's password. Ends their other sessions and clears any lockout.
       dotnet run --project src/Db -- demo
-          Create or update the public demo account (DEMO_PASSWORD, optional DEMO_EMAIL) in the "Demo" tenant.
+          Create or update the public demo account (DEMO_PASSWORD, optional DEMO_EMAIL) in the "Demo" and "Other Demo" tenants.
 
     Passwords are typed at a hidden prompt, or read from standard input with --password-stdin.
     They are never taken as arguments, which end up in shell history.

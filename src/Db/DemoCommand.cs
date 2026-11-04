@@ -8,7 +8,7 @@ using Microsoft.Data.SqlClient;
 namespace DashboardStarter.Db;
 
 /// <summary>
-/// <c>demo</c>: the shared account for a public demo. Creates the "Demo" tenant and the demo
+/// <c>demo</c>: the shared account for a public demo. Creates the "Demo" and "Other Demo" tenants and the demo
 /// user (IsDemo = 1) with the published password from DEMO_PASSWORD (and DEMO_EMAIL, default
 /// guest@example.com). Runs in any environment, unlike seed; the deploy runs it when the repo
 /// variable DEMO_ENABLED is true.
@@ -21,7 +21,8 @@ namespace DashboardStarter.Db;
 /// </remarks>
 internal static class DemoCommand
 {
-  private const string TenantName = "Demo";
+  // Two tenants, so the demo shows the tenant switcher and that each tenant only sees its own data.
+  private static readonly string[] TenantNames = ["Demo", "Other Demo"];
   private const string DisplayName = "Demo Guest";
   private const string DefaultEmail = "guest@example.com";
 
@@ -58,9 +59,6 @@ internal static class DemoCommand
         $"{email} already exists as an ordinary account. The demo password is published, so it won't take over a real account. Set DEMO_EMAIL to another address.");
     }
 
-    (int tenantId, bool tenantCreated) = await UserAccounts.EnsureTenantAsync(connection, transaction, TenantName);
-    ScriptExecutor.PrintResult(tenantCreated ? "created" : "exists", "tenant " + TenantName, "id " + tenantId);
-
     int userId;
     if (user is null)
     {
@@ -73,8 +71,14 @@ internal static class DemoCommand
       ScriptExecutor.PrintResult("exists", "user " + email, "id " + userId);
     }
 
-    string membership = await UserAccounts.EnsureMembershipAsync(connection, transaction, tenantId, userId);
-    ScriptExecutor.PrintResult(membership, "member of " + TenantName);
+    foreach (string tenantName in TenantNames)
+    {
+      (int tenantId, bool tenantCreated) = await UserAccounts.EnsureTenantAsync(connection, transaction, tenantName);
+      ScriptExecutor.PrintResult(tenantCreated ? "created" : "exists", "tenant " + tenantName, "id " + tenantId);
+
+      string membership = await UserAccounts.EnsureMembershipAsync(connection, transaction, tenantId, userId);
+      ScriptExecutor.PrintResult(membership, "member of " + tenantName);
+    }
 
     PasswordVerification current = user?.PasswordHash is null
       ? PasswordVerification.Failed

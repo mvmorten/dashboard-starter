@@ -4,7 +4,7 @@ An opinionated, open-source dashboard starter for building real business apps wi
 
 Clone it, rename it, and start on your actual product instead of rebuilding auth, layout, and plumbing for the tenth time.
 
-**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Sign in with the shared demo account: the sign-in page shows its email and password, and **Use demo account** fills them in. Everyone uses the same account, so don't put anything private in it. You land in the "Demo" tenant; the user menu at the top right signs you out.
+**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Sign in with the shared demo account: the sign-in page shows its email and password, and **Use demo account** fills them in. Everyone uses the same account, so don't put anything private in it. The account belongs to two tenants, "Demo" and "Other Demo": switch between them at the top, and the user menu at the top right signs you out. You land in the tenant the account used last, so with a shared account that may be whichever one the last visitor picked.
 
 > **Status:** Just getting started. This project is being built in public, and every step is documented in a blog series. Expect the code to change quickly while the foundation takes shape.
 

@@ -154,7 +154,7 @@ Merge anything to `main`. To redeploy the current `main` without a new commit, o
 2. Signs in to Azure (step 3) and opens the SQL firewall to the runner's IP address for the length of the job.
 3. Runs `src/Db migrate` with the admin login, retrying while a paused database wakes up.
 4. Runs `src/Db app-user`, which creates the API's login (or resets its password) with data access only.
-5. If `DEMO_ENABLED` is `true`, runs `src/Db demo`: the "Demo" tenant and the shared demo account, with `DEMO_PASSWORD`. It only changes the password when the variable changed, so people trying the demo stay signed in across deploys.
+5. If `DEMO_ENABLED` is `true`, runs `src/Db demo`: the "Demo" and "Other Demo" tenants and the shared demo account, with `DEMO_PASSWORD`. It only changes the password when the variable changed, so people trying the demo stay signed in across deploys.
 6. Closes the firewall again, even if a step failed.
 7. Sets the app settings: the connection string (the API's login, not the admin), `CanonicalHost`, `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` (so the app sees HTTPS and each visitor's IP behind App Service's front end), where the Data Protection keys live, and the demo account the sign-in page shows.
 8. Deploys the zip and waits for `/api/health` to report healthy **and** the commit it just deployed. Healthy alone could be the previous version, still answering while the new one starts.
