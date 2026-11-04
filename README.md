@@ -182,7 +182,7 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 
 ## Getting started
 
-You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) (current LTS), [Node.js](https://nodejs.org/) (current LTS; at least 20.19 or 22.12), and [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) (current LTS), [Node.js](https://nodejs.org/) (current LTS; at least 22.22, because React Router 8 requires it), and [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
 From the repo root:
 
