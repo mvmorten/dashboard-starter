@@ -132,6 +132,8 @@ It's a principle, loosely held: it guides the decision, it doesn't rule out good
 
 "Dev" packages are build and editor tooling; they aren't shipped to the browser.
 
+`src/Web/package.json` also has one `overrides` entry: it forces `minimatch` (the glob matcher inside ESLint and `typescript-eslint`) up to 11.0.4, because 10.x has a denial-of-service bug ([GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249)) and those packages still ask for 10.x. It's dev tooling only, and lint was checked against it. Remove the override once ESLint and `typescript-eslint` depend on minimatch 11 themselves.
+
 ## What it will include
 
 The goal is the 80% every dashboard app needs on day one:
