@@ -1,6 +1,6 @@
 # Deploying to Azure
 
-How dashboard-starter goes live: one Azure App Service runs the API and serves the React app, one Azure SQL database holds the data, and GitHub Actions deploys every merge to `main`.
+How dashboard-starter goes live: one Azure App Service runs the API and serves the React app, one Azure SQL database holds the data, a storage account and a Key Vault keep the keys behind the sign-in cookie, and GitHub Actions deploys every merge to `main`.
 
 ```
 GitHub: merge to main
@@ -8,6 +8,7 @@ GitHub: merge to main
   -> Deploy (deploy.yml): build, migrate, app login, configure, deploy, health check
        -> Azure App Service (Linux, .NET 10): API + React build in wwwroot
        -> Azure SQL Database
+       -> Storage + Key Vault: Data Protection keys (the sign-in cookie's encryption keys)
 ```
 
 Setup is a handful of commands you run once. After that, deploying is merging a pull request.
@@ -15,6 +16,7 @@ Setup is a handful of commands you run once. After that, deploying is merging a 
 ## What you need
 
 - An Azure subscription. A Visual Studio (MSDN) subscription's monthly credit covers this comfortably.
+- Owner (or User Access Administrator) on the resource group, because the Bicep file grants the web app access to its key storage. Owning the subscription covers it.
 - The [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), signed in with `az login`.
 - Admin rights on your GitHub repo (yours, or your fork).
 
@@ -51,7 +53,11 @@ az deployment group create --resource-group $RG --template-file infra/main.bicep
   --parameters appName=$APP sqlAdminPassword="$SQL_ADMIN_PASSWORD"
 ```
 
-[`infra/main.bicep`](../infra/main.bicep) creates the App Service plan (B1, Linux), the web app (.NET 10, HTTPS only), the SQL server, its firewall rule for Azure services, and the database. It doesn't create the schema or hold any connection string; the deploy workflow does both. Run it again whenever the file changes. It only changes what's different.
+[`infra/main.bicep`](../infra/main.bicep) creates the App Service plan (B1, Linux), the web app (.NET 10, HTTPS only, with a managed identity), the SQL server, its firewall rule for Azure services, the database, and the Data Protection key storage (below). It doesn't create the schema or hold any connection string; the deploy workflow does both. Run it again whenever the file changes. It only changes what's different.
+
+**Data Protection keys.** ASP.NET Core encrypts the sign-in and antiforgery cookies with keys of its own. Left in the container, they'd be replaced on every deploy, and everyone would be signed out. So the Bicep file also creates a storage account (`dp<hash>`) that holds the key ring as one blob, and a Key Vault (`kv<hash>`) with an RSA key that encrypts every key in that blob. The RSA key never leaves the vault: someone who copies the blob still can't read the keys. The web app reaches both with its managed identity and two narrow roles: read and write that one blob container, and wrap and unwrap with the vault's keys. There are no secrets in its settings. Cost: cents a month. The deploy finds both resources by their `purpose: dataprotection` tag.
+
+**Already deployed before step 5?** Run the `az deployment group create` command above again before merging step 5. The deploy stops with a message if the key storage is missing. Role assignments can take a few minutes to apply, so if the first deploy after that fails its health check with a Data Protection error in the log, run CI on `main` again.
 
 **Basic or free database?** By default the database is Basic: always on, a few dollars a month, and every request answers straight away. To pay nothing, add `useFreeDatabase=true` to the parameters for Azure SQL's [free offer](https://learn.microsoft.com/azure/azure-sql/database/free-offer) instead: serverless, one per subscription, with a monthly allowance of compute and 32 GB of storage. The catch is that it pauses after an hour without connections, and the first request after a pause waits while it wakes up (up to about a minute). If the allowance runs out, it pauses until next month instead of billing. Fine for a personal sandbox, not great for a public demo. Decide before the first run if you can; switching later works, but it's a change to a live database.
 
@@ -122,8 +128,11 @@ Then **Settings > Secrets and variables > Actions > Variables**, add these **rep
 | `AZURE_RESOURCE_GROUP` | `$RG` |
 | `AZURE_WEBAPP_NAME` | `$APP` |
 | `CANONICAL_HOST` | Leave unset for now (see step 6) |
+| `DEMO_ENABLED` | `true` for a public demo with a shared account; leave unset otherwise |
+| `DEMO_PASSWORD` | The demo account's password, at least 12 characters. Not a secret: the sign-in page shows it |
+| `DEMO_EMAIL` | Optional. The demo account's email; default `guest@example.com` |
 
-None of the variables are secret: they say where to deploy, not how to get in. With the GitHub CLI it's quicker:
+None of the variables are secret: they say where to deploy, not how to get in. The demo password is no exception: it's printed on the sign-in page on purpose. With the GitHub CLI it's quicker:
 
 ```bash
 gh secret set SQL_ADMIN_PASSWORD --env demo --body "$SQL_ADMIN_PASSWORD"
@@ -145,9 +154,10 @@ Merge anything to `main`. To redeploy the current `main` without a new commit, o
 2. Signs in to Azure (step 3) and opens the SQL firewall to the runner's IP address for the length of the job.
 3. Runs `src/Db migrate` with the admin login, retrying while a paused database wakes up.
 4. Runs `src/Db app-user`, which creates the API's login (or resets its password) with data access only.
-5. Closes the firewall again, even if a step failed.
-6. Sets the app's connection string (the API's login, not the admin) and `CanonicalHost`.
-7. Deploys the zip and waits for `/api/health` to report healthy **and** the commit it just deployed. Healthy alone could be the previous version, still answering while the new one starts.
+5. If `DEMO_ENABLED` is `true`, runs `src/Db demo`: the "Demo" tenant and the shared demo account, with `DEMO_PASSWORD`. It only changes the password when the variable changed, so people trying the demo stay signed in across deploys.
+6. Closes the firewall again, even if a step failed.
+7. Sets the app settings: the connection string (the API's login, not the admin), `CanonicalHost`, `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` (so the app sees HTTPS and each visitor's IP behind App Service's front end), where the Data Protection keys live, and the demo account the sign-in page shows.
+8. Deploys the zip and waits for `/api/health` to report healthy **and** the commit it just deployed. Healthy alone could be the previous version, still answering while the new one starts.
 
 Then open `https://<APP>.azurewebsites.net`. The footer shows the build number and commit. If a deploy lands while a tab is open, the page notices on its next health check and offers a reload.
 
@@ -184,4 +194,5 @@ The certificates renew automatically. Host names and certificates aren't in the 
 - **Rotate the admin password:** `az sql server update --resource-group $RG --name $APP-sql --admin-password "<new>"`, then update `SQL_ADMIN_PASSWORD`.
 - **Logs:** `az webapp log tail --resource-group $RG --name $APP`, or **Log stream** in the portal.
 - **Connect from SSMS:** add your IP under the SQL server's **Networking** settings, connect to `<APP>-sql.database.windows.net` with the admin login, and remove the rule when done. If you chose the free database, an open SSMS connection keeps it awake and uses up its monthly allowance.
-- **Tear it all down:** `az group delete --name $RG`. Then delete the `$APP-deploy` app registration (`az ad app delete --id $CLIENT_ID`).
+- **Create a user:** there's no sign-up page. Open the database firewall to your IP (as for SSMS), then run the Db runner against Azure with the admin connection string: `DOTNET_ENVIRONMENT=Production ConnectionStrings__Default='<admin connection string>' dotnet run --no-launch-profile --project src/Db -- create-user --email you@example.com --name "Your Name" --tenant "Your Tenant"`. It prompts for the password. `set-password` works the same way. Keep `--no-launch-profile`: without it, the runner's launch profile switches the environment to Development.
+- **Tear it all down:** `az group delete --name $RG`. Then delete the `$APP-deploy` app registration (`az ad app delete --id $CLIENT_ID`), and purge the Key Vault, which Azure keeps for 7 days after deletion and which would block recreating the group under the same name: `az keyvault purge --name kv<hash>` (`az keyvault list-deleted` shows the name).

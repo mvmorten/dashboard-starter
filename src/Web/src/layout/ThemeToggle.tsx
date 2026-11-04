@@ -8,15 +8,43 @@ const labels: Record<Theme, string> = {
   dark: "dark",
 };
 
+interface ThemeToggleProps {
+  // In the user menu the button shows its label next to the icon; on the sign-in page,
+  // where space is short, it's the icon alone.
+  withLabel?: boolean;
+}
+
 // One button that cycles system, light, dark. The label says what is on now and what a
 // click does, since the icon alone doesn't.
-export default function ThemeToggle() {
+export default function ThemeToggle({ withLabel = false }: ThemeToggleProps) {
   const [theme, setTheme] = useState<Theme>(readTheme);
   const next = nextTheme(theme);
 
   function cycle() {
     applyTheme(next);
     setTheme(next);
+  }
+
+  const icon = (
+    <>
+      {theme === "system" && <SystemIcon />}
+      {theme === "light" && <SunIcon />}
+      {theme === "dark" && <MoonIcon />}
+    </>
+  );
+
+  if (withLabel) {
+    return (
+      <button
+        type="button"
+        className="menu-option"
+        aria-label={`Theme: ${labels[theme]}. Switch to ${labels[next]}.`}
+        onClick={cycle}
+      >
+        {icon}
+        Theme: {labels[theme]}
+      </button>
+    );
   }
 
   return (
@@ -26,9 +54,7 @@ export default function ThemeToggle() {
       aria-label={`Theme: ${labels[theme]}. Switch to ${labels[next]}.`}
       onClick={cycle}
     >
-      {theme === "system" && <SystemIcon />}
-      {theme === "light" && <SunIcon />}
-      {theme === "dark" && <MoonIcon />}
+      {icon}
     </button>
   );
 }

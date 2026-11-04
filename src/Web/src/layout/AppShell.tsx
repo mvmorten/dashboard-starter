@@ -1,5 +1,6 @@
 import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import { useLocation } from "react-router";
+import { useMe } from "../auth/useMe";
 import { BuildFooter, StaleNotice } from "./BuildNotices";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
@@ -13,8 +14,18 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const isWide = useMediaQuery(WIDE_QUERY);
   const drawerRef = useRef<HTMLDialogElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const { pathname } = useLocation();
+  const { pathname, state } = useLocation();
   const previousPath = useRef(pathname);
+  const { data: me } = useMe();
+  const signedInJustNow = (state as { focusMain?: boolean } | null)?.focusMain;
+
+  // Right after sign-in the sign-in form is gone, and focus with it. Start at the top of
+  // the page the user came for.
+  useEffect(() => {
+    if (signedInJustNow) {
+      mainRef.current?.focus();
+    }
+  }, [signedInJustNow]);
 
   // A page change in a single-page app doesn't move keyboard focus by itself, so focus
   // would stay on the link that was clicked. Move it to the top of the new page instead.
@@ -68,6 +79,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <main id="main" ref={mainRef} tabIndex={-1} className="content">
         <div className="content-inner">
           <StaleNotice />
+          {me && me.currentTenantId === null && (
+            <p className="notice">
+              Your account isn&apos;t a member of any tenant yet, so
+              there&apos;s nothing to show. Ask an administrator to add you to
+              one.
+            </p>
+          )}
           {children}
           <BuildFooter />
         </div>

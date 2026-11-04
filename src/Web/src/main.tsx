@@ -3,10 +3,13 @@ import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import App from "./App.tsx";
+import { setUnauthorizedHandler } from "./api";
+import { meQueryKey } from "./auth/me";
 import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/shell.css";
 import "./styles/pages.css";
+import "./styles/sign-in.css";
 
 const root = document.getElementById("root");
 if (!root) {
@@ -14,6 +17,14 @@ if (!root) {
 }
 
 const queryClient = new QueryClient();
+
+// Any API call that answers 401 means the session ended (signed out in another tab,
+// password changed, access removed, expired). Forget everything cached and mark nobody as
+// signed in; RequireSignIn then sends the user to the sign-in page.
+setUnauthorizedHandler(() => {
+  queryClient.clear();
+  queryClient.setQueryData(meQueryKey, null);
+});
 
 // Development only. Vite replaces import.meta.env.DEV with a constant, so a production
 // build drops this import and the devtools package never reaches the browser.
