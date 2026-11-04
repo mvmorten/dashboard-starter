@@ -49,7 +49,9 @@ public sealed class AntiforgeryFilter : IAsyncAuthorizationFilter
     }
     catch (AntiforgeryValidationException exception)
     {
-      _logger.LogInformation("Rejected {Method} {Path}: {Reason}", method, context.HttpContext.Request.Path, exception.Message);
+      // Name the action from our own route table, not the raw method and path: those come from
+      // the request, and a decoded %0A in the path would start a fake line in plain-text logs.
+      _logger.LogInformation("Rejected a request to {Action}: {Reason}", context.ActionDescriptor.DisplayName, exception.Message);
       context.Result = new BadRequestObjectResult(new ProblemDetails
       {
         Status = StatusCodes.Status400BadRequest,

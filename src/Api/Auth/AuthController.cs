@@ -69,6 +69,8 @@ public sealed class AuthController : ControllerBase
     AntiforgeryTokenSet tokens = _antiforgery.GetAndStoreTokens(HttpContext);
     Response.Cookies.Append(_cookies.RequestTokenName, tokens.RequestToken ?? string.Empty, new CookieOptions
     {
+      // Not HttpOnly on purpose: the React app reads this value and echoes it in a header.
+      // It's useless on its own; the HttpOnly antiforgery cookie it pairs with stays hidden.
       HttpOnly = false,
       Secure = _cookies.SecurePolicy == CookieSecurePolicy.Always || Request.IsHttps,
       SameSite = SameSiteMode.Strict,
