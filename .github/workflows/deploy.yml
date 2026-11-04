@@ -148,6 +148,20 @@ jobs:
           APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
         run: dotnet run --no-build --no-launch-profile --configuration Release --project src/Db -- app-user
 
+      # The shared account for a public demo, shown on the sign-in page. Only when the repo
+      # variable DEMO_ENABLED is true, so a fork doesn't get a demo account it never asked
+      # for. DEMO_PASSWORD is a variable, not a secret: it's published on purpose. Safe on
+      # every deploy: an unchanged password leaves the account alone, so people trying the
+      # demo stay signed in.
+      - name: Create or update the demo account
+        if: vars.DEMO_ENABLED == 'true'
+        env:
+          DOTNET_ENVIRONMENT: Production
+          ConnectionStrings__Default: Server=tcp:${{ env.SQL_SERVER_NAME }}.database.windows.net,1433;Database=${{ env.DATABASE_NAME }};User Id=${{ env.SQL_ADMIN_LOGIN }};Password=${{ secrets.SQL_ADMIN_PASSWORD }};Encrypt=True;TrustServerCertificate=False;Connect Timeout=60
+          DEMO_EMAIL: ${{ vars.DEMO_EMAIL }}
+          DEMO_PASSWORD: ${{ vars.DEMO_PASSWORD }}
+        run: dotnet run --no-build --no-launch-profile --configuration Release --project src/Db -- demo
+
       - name: Close the database firewall
         if: always()
         run: |
@@ -157,13 +171,47 @@ jobs:
       # App settings become environment variables in the app. Set on every deploy so the
       # GitHub secrets stay the one place these values live. --output none keeps the values
       # out of the log (az would otherwise print every setting back).
+      #
+      # ASPNETCORE_FORWARDEDHEADERS_ENABLED: App Service's front end ends TLS and passes the
+      # original scheme and client address in X-Forwarded-Proto and X-Forwarded-For. With
+      # this on, ASP.NET Core applies them, so the app sees HTTPS (Secure cookies, HSTS) and
+      # each visitor's own IP (the sign-in rate limit).
+      #
+      # DataProtection__*: where the keys that encrypt the auth cookie live, so a deploy
+      # doesn't sign everyone out (src/Api/Hosting/DataProtectionSetup.cs). Found by tag in
+      # the resource group; infra/main.bicep creates them.
+      #
+      # Demo__*: the demo account the sign-in page shows, or nothing when DEMO_ENABLED isn't true.
       - name: Configure the app
         env:
           CONNECTION_STRING: Server=tcp:${{ env.SQL_SERVER_NAME }}.database.windows.net,1433;Database=${{ env.DATABASE_NAME }};User Id=${{ env.APP_DB_USER }};Password=${{ secrets.APP_DB_PASSWORD }};Encrypt=True;TrustServerCertificate=False;Connect Timeout=60
           CANONICAL_HOST: ${{ vars.CANONICAL_HOST }}
+          DEMO_ENABLED: ${{ vars.DEMO_ENABLED }}
+          DEMO_EMAIL: ${{ vars.DEMO_EMAIL || 'guest@example.com' }}
+          DEMO_PASSWORD: ${{ vars.DEMO_PASSWORD }}
         run: |
+          storage=$(az storage account list --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query "[?tags.purpose=='dataprotection'] | [0].primaryEndpoints.blob" --output tsv)
+          vault=$(az keyvault list --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query "[?tags.purpose=='dataprotection'] | [0].name" --output tsv)
+          if [ -z "$storage" ] || [ -z "$vault" ]; then
+            echo "No Data Protection key storage in $AZURE_RESOURCE_GROUP. Run infra/main.bicep again (docs/deploy-azure.md, step 2)."
+            exit 1
+          fi
+          key_id=$(az resource show --resource-group "$AZURE_RESOURCE_GROUP" \
+            --resource-type Microsoft.KeyVault/vaults/keys --name "$vault/dataprotection" \
+            --query properties.keyUriWithVersion --output tsv)
+
+          if [ "$DEMO_ENABLED" != "true" ]; then
+            DEMO_EMAIL=""
+            DEMO_PASSWORD=""
+          fi
+
           az webapp config appsettings set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
             --settings "ConnectionStrings__Default=$CONNECTION_STRING" "CanonicalHost=$CANONICAL_HOST" \
+              "ASPNETCORE_FORWARDEDHEADERS_ENABLED=true" \
+              "DataProtection__BlobUri=${storage}dataprotection/keys.xml" "DataProtection__KeyId=$key_id" \
+              "Demo__Email=$DEMO_EMAIL" "Demo__Password=$DEMO_PASSWORD" \
             --output none
 
       - name: Deploy the code

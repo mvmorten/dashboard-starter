@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using DashboardStarter.Db.Passwords;
 using Microsoft.Data.SqlClient;
 
 namespace DashboardStarter.Db;
@@ -76,6 +77,22 @@ internal sealed class RunnerSettings
     }
 
     return new RunnerSettings(environmentName, connectionString, builder.DataSource, builder.InitialCatalog);
+  }
+
+  /// <summary>
+  /// The same hasher the API uses, with settings from PasswordHashing__MemorySizeKiB,
+  /// PasswordHashing__Iterations, and PasswordHashing__Parallelism (defaults when unset).
+  /// </summary>
+  public IPasswordHasher CreatePasswordHasher()
+  {
+    try
+    {
+      return new Argon2idPasswordHasher(PasswordHashingOptions.FromEnvironment());
+    }
+    catch (InvalidOperationException exception)
+    {
+      throw new RunnerException(exception.Message);
+    }
   }
 
   public async Task<SqlConnection> OpenAsync()

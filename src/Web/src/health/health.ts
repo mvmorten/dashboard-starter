@@ -9,6 +9,8 @@ export interface DatabaseHealth {
   schemaVersion: string | null;
   appliedMigrations: number;
   expectedMigrations: number;
+  // The tenant this request's connection carried in SESSION_CONTEXT (null if not signed in).
+  sessionTenantId: number | null;
 }
 
 // Outside Development the API sends only `status` and `build`; the database details

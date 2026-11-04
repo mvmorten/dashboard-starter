@@ -2,6 +2,7 @@
 //
 //   App Service plan (Linux) -> Web App running the API, which also serves the React build
 //   Azure SQL logical server  -> one database
+//   Storage account + Key Vault -> the Data Protection keys behind the sign-in cookie
 //
 // Run on purpose, like the migrate command. It creates what's missing and updates what
 // changed; running it twice is safe. See docs/deploy-azure.md for the full walkthrough.
@@ -57,6 +58,11 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
   name: appName
   location: location
   kind: 'app,linux'
+  // An identity Azure manages for the app, so it can reach the Data Protection key storage
+  // below without any secret in its settings.
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     serverFarmId: plan.id
     // The App Service front end redirects http to https before a request reaches the app.
@@ -123,8 +129,112 @@ resource database 'Microsoft.Sql/servers/databases@2025-01-01' = {
     : {}
 }
 
+// ---- Data Protection keys (step 5) ----
+//
+// ASP.NET Core encrypts the auth and antiforgery cookies with Data Protection keys. Kept in
+// the container they'd be lost on every deploy, signing everyone out. Instead the key ring is
+// one blob in this storage account, and each key in it is encrypted with an RSA key in this
+// Key Vault that never leaves the vault (src/Api/Hosting/DataProtectionSetup.cs).
+//
+// The deploy workflow finds both by the purpose tag and gives the app their addresses as app
+// settings. Names come from the resource group's id, so they're unique across Azure (both
+// need to be) and stay the same each time this file runs.
+var keyStoreSuffix = uniqueString(resourceGroup().id)
+
+resource keyStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: 'dp${keyStoreSuffix}'
+  location: location
+  kind: 'StorageV2'
+  sku: {
+    name: 'Standard_LRS'
+  }
+  tags: {
+    purpose: 'dataprotection'
+  }
+  properties: {
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+    // Only signed-in identities with a role below get in: no anonymous blobs, no account keys.
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+  }
+}
+
+resource keyBlobs 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: keyStorage
+  name: 'default'
+}
+
+resource keyContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: keyBlobs
+  name: 'dataprotection'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: 'kv${keyStoreSuffix}'
+  location: location
+  tags: {
+    purpose: 'dataprotection'
+  }
+  properties: {
+    tenantId: subscription().tenantId
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    // Access by Azure roles (below), not the older per-vault access policies.
+    enableRbacAuthorization: true
+    // Soft delete can't be turned off. Purge protection stays off, so tearing everything
+    // down can purge the vault (docs/deploy-azure.md, "Tear it all down").
+    softDeleteRetentionInDays: 7
+  }
+}
+
+// Creates the first version if the key doesn't exist; a rerun leaves an existing key alone.
+resource dataProtectionKey 'Microsoft.KeyVault/vaults/keys@2023-07-01' = {
+  parent: keyVault
+  name: 'dataprotection'
+  properties: {
+    kty: 'RSA'
+    keySize: 2048
+    keyOps: [
+      'wrapKey'
+      'unwrapKey'
+    ]
+  }
+}
+
+// Storage Blob Data Contributor, on the one container: read and write the key ring.
+resource keyContainerAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: keyContainer
+  name: guid(keyContainer.id, web.id, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+    principalId: web.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Key Vault Crypto Service Encryption User, on the vault: wrap and unwrap with its keys,
+// nothing else (it can't read secrets, export keys, or delete anything).
+resource keyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: keyVault
+  name: guid(keyVault.id, web.id, 'e147488a-f6f5-4113-8e2d-b22465e65bf6')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'e147488a-f6f5-4113-8e2d-b22465e65bf6')
+    principalId: web.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 output webAppName string = web.name
 output webAppHostName string = web.properties.defaultHostName
 output sqlServerName string = sqlServer.name
 output sqlServerHostName string = sqlServer.properties.fullyQualifiedDomainName
 output databaseName string = database.name
+output keyVaultName string = keyVault.name
+output dataProtectionBlobUri string = '${keyStorage.properties.primaryEndpoints.blob}dataprotection/keys.xml'
+output dataProtectionKeyId string = dataProtectionKey.properties.keyUriWithVersion

@@ -9,6 +9,8 @@
   <ItemGroup>
     <PackageReference Include="Dapper" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
+    <!-- Argon2id for password hashes (Passwords/), shared with the API. -->
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
   </ItemGroup>
 
   <!--
