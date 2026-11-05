@@ -211,12 +211,15 @@ jobs:
               echo "No DKIM record at resend._domainkey.$domain. Add the DNS records from Resend (docs/deploy-azure.md, step 7)."
               exit 1
             fi
-            if [ -z "$(dig +short MX "send.$domain")" ]; then
+            # Resend may publish send.<domain> as its own MX and TXT records or as a CNAME to
+            # its servers; dig follows the CNAME, so both shapes pass. A CNAME alone prints its
+            # target, so match the record itself: an MX line starts with its priority.
+            if ! dig +short MX "send.$domain" | grep -qE '^[0-9]+ '; then
               echo "No MX record at send.$domain. Add the DNS records from Resend (docs/deploy-azure.md, step 7)."
               exit 1
             fi
-            if ! dig +short TXT "send.$domain" | grep -q 'amazonses.com'; then
-              echo "No SPF record for Resend at send.$domain. Add the DNS records from Resend (docs/deploy-azure.md, step 7)."
+            if ! dig +short TXT "send.$domain" | grep -q 'v=spf1'; then
+              echo "No SPF record at send.$domain. Add the DNS records from Resend (docs/deploy-azure.md, step 7)."
               exit 1
             fi
             echo "Email on: DNS records for $domain found. Check that Resend shows the domain as Verified."

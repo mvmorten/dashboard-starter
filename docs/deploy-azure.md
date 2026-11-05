@@ -198,17 +198,19 @@ Email needs a custom domain first (step 6). Reset links are built from `CANONICA
 
 1. **Pick a sending subdomain**, for example `notify.example.com`. Use a subdomain, not your bare domain: it keeps this app's sending reputation separate, and leaves any mail you already handle on the bare domain alone. It can't be the app's own host name either: that one is a `CNAME`, and a `CNAME` can't have other records next to it.
 2. **Add the domain in Resend.** Create an account, then **Domains > Add domain**: the subdomain, and the region nearest your app (`us-east-1` for this repo's demo). Leave open and click tracking off: password emails shouldn't carry tracking links or pixels.
-3. **Add the DNS records** Resend shows. Copy the values from the Resend page; the ones below show the shape. Names are relative to your zone (`example.com`); with Cloudflare, set every record to **DNS only** (gray cloud), since a proxied record isn't visible to mail servers.
+3. **Add the DNS records** Resend shows, exactly as it shows them: Resend has changed their shape before, so its domain page is the source of truth, not this table. In November 2026 they looked like this. Names are relative to your zone (`example.com`); with Cloudflare, set every record to **DNS only** (gray cloud), since a proxied record isn't visible to mail servers. (Resend's **Auto configure** button can add them to Cloudflare for you.)
 
    | Type | Name | Value | Why |
    | --- | --- | --- | --- |
-   | `MX` | `send.notify` | `feedback-smtp.us-east-1.amazonses.com`, priority 10 | Where bounces go |
-   | `TXT` | `send.notify` | `v=spf1 include:amazonses.com ~all` | SPF: who may send for the bounce domain |
    | `TXT` | `resend._domainkey.notify` | `p=...` (long key from Resend) | DKIM: proves the mail is really from you |
-   | `TXT` | `_dmarc.notify` | `v=DMARC1; p=none;` | DMARC: Gmail and Outlook trust mail more with one. Start with `p=none` and tighten later |
+   | `CNAME` | `send.notify` | `send.forge.rmta.net` | SPF and bounces: points the bounce domain at Resend, which publishes its SPF and MX records there |
+   | `CNAME` | `rsend.notify` | `rsend.forge.rmta.net` | The same, for Resend's second sending route |
+   | `TXT` | `_dmarc.notify` | `v=DMARC1; p=none;` | DMARC: not required by Resend, but Gmail and Outlook trust mail more with one. Start with `p=none` and tighten later |
+
+   Older Resend setups use an `MX` and an SPF `TXT` record on `send.notify` instead of the `CNAME`s; either works.
 
    Then click **Verify DNS Records** in Resend and wait for the domain to show **Verified** (minutes, usually; up to 72 hours).
-4. **Check the records from outside** before the first deploy with email on. The deploy runs these same checks and stops if one is empty:
+4. **Check the records from outside** before the first deploy with email on. The deploy runs these same checks and stops if one comes back without a DKIM key, an MX record, or a `v=spf1` record (through the `CNAME`, if there is one):
 
    ```bash
    dig +short TXT resend._domainkey.notify.example.com
