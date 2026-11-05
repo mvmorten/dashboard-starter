@@ -289,7 +289,7 @@ CI also runs the API against a real SQL Server and checks sign-in end to end wit
 Free GitHub features, so none of them add a dependency to the project:
 
 - **CodeQL** (`.github/workflows/codeql.yml`) reads the C#, TypeScript, and workflow files on every pull request and once a week, looking for security bugs like SQL injection and XSS. Findings show up on the PR and in the Security tab.
-- **Dependabot** (`.github/dependabot.yml`) opens a weekly PR per ecosystem (NuGet, npm, GitHub Actions) with minor and patch updates grouped, plus immediate PRs for known advisories. Every update goes through CI like any other change.
+- **Dependabot** (`.github/dependabot.yml`) opens a weekly PR per ecosystem (NuGet, npm, GitHub Actions) with minor and patch updates grouped, plus immediate PRs for known advisories. Every update goes through CI like any other change. Major versions of `typescript`, `@types/node`, and `react-router` are ignored and bumped by hand after reading their upgrade notes, because a major can pass CI and still be wrong for this project (the reasons are in `dependabot.yml`).
 - **Secret scanning with push protection** blocks a push that contains something that looks like a key or password.
 - **Private vulnerability reporting**: how to report a problem is in [SECURITY.md](SECURITY.md).
 
