@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using DashboardStarter.Api.Email;
 using DashboardStarter.Api.Tenants;
 using DashboardStarter.Db.Passwords;
 using Microsoft.AspNetCore.Antiforgery;
@@ -36,6 +37,7 @@ public sealed class AuthController : ControllerBase
   private readonly AuthCookies _cookies;
   private readonly AuthOptions _options;
   private readonly DemoAccountOptions _demo;
+  private readonly EmailStatus _email;
   private readonly ILogger<AuthController> _logger;
 
   public AuthController(
@@ -46,6 +48,7 @@ public sealed class AuthController : ControllerBase
     AuthCookies cookies,
     IOptions<AuthOptions> options,
     IOptions<DemoAccountOptions> demo,
+    EmailStatus email,
     ILogger<AuthController> logger)
   {
     _userStore = userStore;
@@ -55,6 +58,7 @@ public sealed class AuthController : ControllerBase
     _cookies = cookies;
     _options = options.Value;
     _demo = demo.Value;
+    _email = email;
     _logger = logger;
   }
 
@@ -80,7 +84,10 @@ public sealed class AuthController : ControllerBase
     return NoContent();
   }
 
-  /// <summary>What the sign-in page needs before anyone signs in: the demo account, if this deployment has one.</summary>
+  /// <summary>
+  /// What the sign-in page needs before anyone signs in: the demo account, if this deployment
+  /// has one, and whether "Forgot password?" can send an email.
+  /// </summary>
   [AllowAnonymous]
   [HttpGet("sign-in-info")]
   public ActionResult<SignInInfoResponse> SignInInfo()
@@ -89,7 +96,7 @@ public sealed class AuthController : ControllerBase
       ? null
       : new DemoAccount(_demo.Email, _demo.Password);
 
-    return Ok(new SignInInfoResponse(demo));
+    return Ok(new SignInInfoResponse(demo, _email.Enabled));
   }
 
   [AllowAnonymous]
@@ -143,7 +150,7 @@ public sealed class AuthController : ControllerBase
       await _userStore.MarkTenantUsedAsync(user.Id, tenantId.Value, cancellationToken);
     }
 
-    await IssueCookieAsync(user.Id, tenantId, user.SecurityStamp);
+    await SessionCookie.IssueAsync(HttpContext, user.Id, tenantId, user.SecurityStamp);
     _logger.LogInformation(
       "User {UserId} signed in to tenant {TenantId}{Rehashed}.",
       user.Id,
@@ -186,18 +193,10 @@ public sealed class AuthController : ControllerBase
 
     // Same security stamp: switching tenants doesn't change who you are.
     byte[] stamp = AuthClaims.GetSecurityStamp(User)!;
-    await IssueCookieAsync(userId, request.TenantId, stamp);
+    await SessionCookie.IssueAsync(HttpContext, userId, request.TenantId, stamp);
     _logger.LogInformation("User {UserId} switched to tenant {TenantId}.", userId, request.TenantId);
 
     return await BuildMeAsync(userId, request.TenantId, cancellationToken);
-  }
-
-  private Task IssueCookieAsync(int userId, int? tenantId, byte[] securityStamp)
-  {
-    // Not persistent: the cookie has no expiry date of its own, so the browser drops it when
-    // it closes. The ticket inside still expires after SessionHours without activity.
-    AuthenticationProperties properties = new() { IsPersistent = false };
-    return HttpContext.SignInAsync(AuthClaims.Scheme, AuthClaims.CreatePrincipal(userId, tenantId, securityStamp), properties);
   }
 
   private async Task<ActionResult<MeResponse>> BuildMeAsync(int userId, int? tenantId, CancellationToken cancellationToken)

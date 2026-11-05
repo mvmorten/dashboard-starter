@@ -29,7 +29,7 @@ internal static class CreateUserCommand
 
     // Ask for the password before changing anything, so giving up at the prompt
     // leaves the database as it was.
-    string password = PasswordInput.Read(arguments.Has("password-stdin"));
+    string password = PasswordInput.Read(arguments.Has("password-stdin"), email);
     string passwordHash = hasher.Hash(password);
 
     await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync();

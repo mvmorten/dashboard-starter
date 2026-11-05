@@ -57,7 +57,7 @@ public sealed class AuthCookieEvents : CookieAuthenticationEvents
       return;
     }
 
-    string cacheKey = $"session:{userId}:{tenantId}";
+    string cacheKey = SessionCache.Key(userId.Value, tenantId);
     SessionState? state = await _cache.GetOrCreateAsync(cacheKey, entry =>
     {
       entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(_options.SessionCheckSeconds);

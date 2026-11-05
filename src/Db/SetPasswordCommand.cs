@@ -31,7 +31,7 @@ internal static class SetPasswordCommand
       await FindUserAsync(connection, lookup, email);
     }
 
-    string password = PasswordInput.Read(arguments.Has("password-stdin"));
+    string password = PasswordInput.Read(arguments.Has("password-stdin"), email);
     string passwordHash = hasher.Hash(password);
 
     await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync();

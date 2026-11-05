@@ -149,6 +149,64 @@ public sealed class UserStore
     return updated == 1;
   }
 
+  /// <summary>What change-password needs to check the current password.</summary>
+  public async Task<PasswordChangeCandidate?> FindForPasswordChangeAsync(int userId, CancellationToken cancellationToken)
+  {
+    const string sql = """
+      SELECT Id, Email, PasswordHash, IsDemo
+      FROM dbo.Users
+      WHERE Id = @Id;
+      """;
+
+    await using SqlConnection connection = await _connectionFactory.OpenAsync(cancellationToken);
+    return await connection.QuerySingleOrDefaultAsync<PasswordChangeCandidate>(
+      new CommandDefinition(sql, new { Id = userId }, cancellationToken: cancellationToken));
+  }
+
+  /// <summary>
+  /// Sets a new password and security stamp, so every other session ends. Only if the stored
+  /// hash is still the one the current password was checked against: two changes at once
+  /// can't both win. Returns false (nothing changed) otherwise, or for the demo account.
+  /// </summary>
+  public async Task<bool> ChangePasswordAsync(int userId, string verifiedHash, string newHash, byte[] newSecurityStamp, CancellationToken cancellationToken)
+  {
+    const string sql = """
+      UPDATE dbo.Users
+      SET
+        PasswordHash = @NewHash,
+        PasswordChangedAt = SYSUTCDATETIME(),
+        SecurityStamp = @SecurityStamp,
+        FailedSignInCount = 0,
+        LockoutEndAt = NULL,
+        UpdatedAt = SYSUTCDATETIME()
+      WHERE Id = @Id
+        AND IsDemo = 0
+        AND PasswordHash = @VerifiedHash COLLATE Latin1_General_BIN2;
+      """;
+
+    await using SqlConnection connection = await _connectionFactory.OpenAsync(cancellationToken);
+    int updated = await connection.ExecuteAsync(new CommandDefinition(
+      sql,
+      new { Id = userId, VerifiedHash = verifiedHash, NewHash = newHash, SecurityStamp = newSecurityStamp },
+      cancellationToken: cancellationToken));
+    return updated == 1;
+  }
+
+  /// <summary>Every tenant the user has a membership in, active or not: the session cache has an entry per tenant.</summary>
+  public async Task<IReadOnlyList<int>> GetMembershipTenantIdsAsync(int userId, CancellationToken cancellationToken)
+  {
+    const string sql = """
+      SELECT TenantId
+      FROM dbo.TenantUsers
+      WHERE UserId = @UserId;
+      """;
+
+    await using SqlConnection connection = await _connectionFactory.OpenAsync(cancellationToken);
+    IEnumerable<int> tenantIds = await connection.QueryAsync<int>(
+      new CommandDefinition(sql, new { UserId = userId }, cancellationToken: cancellationToken));
+    return tenantIds.ToList();
+  }
+
   /// <summary>
   /// What the session check compares the cookie against. Null if the user no longer exists.
   /// </summary>
@@ -178,6 +236,8 @@ public sealed class UserStore
       new CommandDefinition(sql, new { UserId = userId, TenantId = tenantId }, cancellationToken: cancellationToken));
   }
 }
+
+public sealed record PasswordChangeCandidate(int Id, string Email, string? PasswordHash, bool IsDemo);
 
 public sealed record SignInCandidate(int Id, string? PasswordHash, byte[] SecurityStamp, bool IsDemo, bool IsLockedOut);
 

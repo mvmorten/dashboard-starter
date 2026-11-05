@@ -26,6 +26,21 @@ public sealed record MeUser(int Id, string Email, string DisplayName, bool IsDem
 
 /// <summary>GET /api/auth/sign-in-info: what the sign-in page shows before anyone signs in.</summary>
 /// <param name="DemoAccount">The public demo's shared account, or null when this deployment has none.</param>
-public sealed record SignInInfoResponse(DemoAccount? DemoAccount);
+/// <param name="EmailEnabled">Whether password reset emails can be sent; the page hides "Forgot password?" otherwise.</param>
+public sealed record SignInInfoResponse(DemoAccount? DemoAccount, bool EmailEnabled);
 
 public sealed record DemoAccount(string Email, string Password);
+
+/// <summary>Body of POST /api/auth/forgot-password.</summary>
+public sealed record ForgotPasswordRequest([Required, MaxLength(256)] string Email);
+
+/// <summary>Body of POST /api/auth/reset-password: the token from the email link, and the new password.</summary>
+/// <remarks>The password's real rules (PasswordRules) are checked in the controller, with a message that says which one.</remarks>
+public sealed record ResetPasswordRequest(
+  [Required, MaxLength(256)] string Token,
+  [Required, MaxLength(1024)] string NewPassword);
+
+/// <summary>Body of POST /api/auth/change-password.</summary>
+public sealed record ChangePasswordRequest(
+  [Required, MaxLength(1024)] string CurrentPassword,
+  [Required, MaxLength(1024)] string NewPassword);
