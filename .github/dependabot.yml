@@ -42,6 +42,11 @@ updates:
       # majors describe APIs that Node 24 doesn't have. Bump all three together by hand.
       - dependency-name: "@types/node"
         update-types: [version-update:semver-major]
+      # Majors of the router have meant rewrites before (v5 to v6) and moved its minimum Node
+      # version (8 needs 22.22). Read the upgrade guide, check the routes still work in
+      # declarative mode, and bump by hand. Minors and patches still arrive grouped.
+      - dependency-name: react-router
+        update-types: [version-update:semver-major]
     commit-message:
       prefix: deps
 
