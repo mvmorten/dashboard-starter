@@ -18,9 +18,18 @@ export class ApiError extends Error {
 
   // The human-readable `detail` of a ProblemDetails body, if there is one.
   get detail(): string | null {
-    if (this.body && typeof this.body === "object" && "detail" in this.body) {
-      const detail = (this.body as { detail: unknown }).detail;
-      return typeof detail === "string" ? detail : null;
+    return this.problemField("detail");
+  }
+
+  // The ProblemDetails `title`: a short, fixed name for the kind of failure.
+  get title(): string | null {
+    return this.problemField("title");
+  }
+
+  private problemField(name: "detail" | "title"): string | null {
+    if (this.body && typeof this.body === "object" && name in this.body) {
+      const value = (this.body as Record<string, unknown>)[name];
+      return typeof value === "string" ? value : null;
     }
 
     return null;

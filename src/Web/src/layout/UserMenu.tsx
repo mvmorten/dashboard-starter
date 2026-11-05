@@ -4,10 +4,11 @@ import { useNavigate } from "react-router";
 import { signOut } from "../auth/session";
 import { useMe } from "../auth/useMe";
 import ThemeToggle from "./ThemeToggle";
-import { SignOutIcon, UserIcon } from "./icons";
+import { KeyIcon, SignOutIcon, UserIcon } from "./icons";
 import { focusMenuOnOpen, moveMenuFocus } from "./menuKeyboard";
 
-// The account button at the right of the top bar: who you are, the theme, and sign out.
+// The account button at the right of the top bar: who you are, the theme, changing your
+// password (not for the shared demo account), and sign out.
 // The theme button moved in here from the top bar, so on a phone the bar still holds the
 // same number of buttons as before sign-in existed.
 export default function UserMenu() {
@@ -19,6 +20,11 @@ export default function UserMenu() {
 
   if (!me) {
     return null;
+  }
+
+  function goToChangePassword() {
+    menuRef.current?.hidePopover();
+    navigate("/change-password");
   }
 
   async function signOutAndLeave() {
@@ -55,6 +61,18 @@ export default function UserMenu() {
           <li>
             <ThemeToggle withLabel />
           </li>
+          {!me.user.isDemo && (
+            <li>
+              <button
+                type="button"
+                className="menu-option"
+                onClick={goToChangePassword}
+              >
+                <KeyIcon />
+                Change password
+              </button>
+            </li>
+          )}
           <li>
             <button
               type="button"

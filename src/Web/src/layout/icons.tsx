@@ -106,6 +106,15 @@ export function UserIcon() {
   );
 }
 
+export function KeyIcon() {
+  return (
+    <Icon>
+      <circle cx="7.5" cy="15.5" r="4.5" />
+      <path d="M10.7 12.3L21 2M16 7l3 3M19 4l2 2" />
+    </Icon>
+  );
+}
+
 export function SignOutIcon() {
   return (
     <Icon>

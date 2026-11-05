@@ -1,12 +1,18 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router";
+import {
+  Link,
+  Navigate,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router";
 import { ApiError, refreshAntiforgeryToken } from "../api";
+import AuthCard from "../auth/AuthCard";
+import PasswordField from "../auth/PasswordField";
 import { safeReturnUrl, signIn } from "../auth/session";
 import { useMe } from "../auth/useMe";
 import { useSignInInfo } from "../auth/useSignInInfo";
-import Logo from "../layout/Logo";
-import ThemeToggle from "../layout/ThemeToggle";
 import { usePageTitle } from "../layout/usePageTitle";
 
 // A plain form with the autocomplete values password managers look for ("username",
@@ -15,6 +21,9 @@ export default function SignIn() {
   usePageTitle("Sign in");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  // A message from the page that sent us here, such as "Password changed" after a reset.
+  const notice = readNotice(location.state);
   const [searchParams] = useSearchParams();
   const returnUrl = safeReturnUrl(searchParams.get("returnUrl"));
   const { data: me } = useMe();
@@ -65,92 +74,98 @@ export default function SignIn() {
   }
 
   return (
-    <main className="sign-in">
-      <div className="sign-in-card">
-        <div className="sign-in-top">
-          <p className="sign-in-brand">
-            <Logo />
-            Dashboard Starter
-          </p>
-          <ThemeToggle />
+    <AuthCard title="Sign in">
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      )}
+
+      <form
+        method="post"
+        onSubmit={submit}
+        aria-describedby={error ? errorId : undefined}
+        noValidate
+      >
+        <div className="field">
+          <label htmlFor="sign-in-email">Email</label>
+          <input
+            ref={emailRef}
+            id="sign-in-email"
+            name="email"
+            type="email"
+            autoComplete="username"
+            inputMode="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
         </div>
-        <h1>Sign in</h1>
 
-        <form
-          method="post"
-          onSubmit={submit}
-          aria-describedby={error ? errorId : undefined}
-          noValidate
-        >
-          <div className="field">
-            <label htmlFor="sign-in-email">Email</label>
-            <input
-              ref={emailRef}
-              id="sign-in-email"
-              name="email"
-              type="email"
-              autoComplete="username"
-              inputMode="email"
-              autoCapitalize="none"
-              spellCheck={false}
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="sign-in-password">Password</label>
-            <input
-              id="sign-in-password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </div>
-
-          <div id={errorId} role="alert" className="form-error">
-            {error}
-          </div>
-
-          <button
-            ref={submitRef}
-            type="submit"
-            className="primary-button"
-            disabled={pending}
-          >
-            {pending ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-
-        {info?.demoAccount && (
-          <section className="demo-account" aria-labelledby="demo-heading">
-            <h2 id="demo-heading">Try the demo</h2>
-            <p>
-              Everyone shares this account, so don&apos;t put anything private
-              in it.
-            </p>
-            <dl>
-              <dt>Email</dt>
-              <dd>
-                <code>{info.demoAccount.email}</code>
-              </dd>
-              <dt>Password</dt>
-              <dd>
-                <code>{info.demoAccount.password}</code>
-              </dd>
-            </dl>
-            <button type="button" onClick={fillDemoAccount}>
-              Use demo account
-            </button>
-          </section>
+        <PasswordField
+          id="sign-in-password"
+          label="Password"
+          autoComplete="current-password"
+          value={password}
+          onChange={setPassword}
+        />
+        {info?.emailEnabled && (
+          <p className="field-link">
+            <Link to="/forgot-password" className="text-link">
+              Forgot password?
+            </Link>
+          </p>
         )}
-      </div>
-    </main>
+
+        <div id={errorId} role="alert" className="form-error">
+          {error}
+        </div>
+
+        <button
+          ref={submitRef}
+          type="submit"
+          className="primary-button"
+          disabled={pending}
+        >
+          {pending ? "Signing in..." : "Sign in"}
+        </button>
+      </form>
+
+      {info?.demoAccount && (
+        <section className="demo-account" aria-labelledby="demo-heading">
+          <h2 id="demo-heading">Try the demo</h2>
+          <p>
+            Everyone shares this account, so don&apos;t put anything private in
+            it.
+          </p>
+          <dl>
+            <dt>Email</dt>
+            <dd>
+              <code>{info.demoAccount.email}</code>
+            </dd>
+            <dt>Password</dt>
+            <dd>
+              <code>{info.demoAccount.password}</code>
+            </dd>
+          </dl>
+          <button type="button" onClick={fillDemoAccount}>
+            Use demo account
+          </button>
+        </section>
+      )}
+    </AuthCard>
   );
+}
+
+function readNotice(state: unknown): string | null {
+  if (state && typeof state === "object" && "notice" in state) {
+    const notice = (state as { notice: unknown }).notice;
+    return typeof notice === "string" ? notice : null;
+  }
+
+  return null;
 }
 
 function describe(error: unknown): string {

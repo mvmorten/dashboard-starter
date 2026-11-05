@@ -52,11 +52,12 @@ export async function switchTenant(
   });
 }
 
-// GET /api/auth/sign-in-info: the public demo account, when this deployment has one.
-// The credentials come from the API's configuration, not from this bundle, so a fork
-// without a demo shows nothing.
+// GET /api/auth/sign-in-info: the public demo account, when this deployment has one, and
+// whether it can send password reset emails. Both come from the API's configuration, not
+// from this bundle, so a fork without a demo or email shows neither.
 export interface SignInInfo {
   demoAccount: { email: string; password: string } | null;
+  emailEnabled: boolean;
 }
 
 export function fetchSignInInfo(signal: AbortSignal): Promise<SignInInfo> {
