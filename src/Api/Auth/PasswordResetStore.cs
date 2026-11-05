@@ -102,7 +102,7 @@ public sealed class PasswordResetStore
 
   /// <summary>
   /// The account a token belongs to, if the token is unused and unexpired. Used to check the
-  /// new password against the account's email before anything changes; <see cref="ResetPasswordAsync"/>
+  /// new password against the account's email before anything changes; <see cref="CompleteResetAsync"/>
   /// checks the token again, atomically.
   /// </summary>
   public async Task<ResetRecipient?> FindValidAsync(byte[] tokenHash, CancellationToken cancellationToken)
@@ -132,7 +132,7 @@ public sealed class PasswordResetStore
   /// failures and lockout are cleared, since the person has just proved they own the inbox.
   /// The user's other tokens are deleted; the used one stays until it's an hour old.
   /// </remarks>
-  public async Task<int?> ResetPasswordAsync(byte[] tokenHash, string passwordHash, CancellationToken cancellationToken)
+  public async Task<int?> CompleteResetAsync(byte[] tokenHash, string passwordHash, CancellationToken cancellationToken)
   {
     const string sql = """
       SET XACT_ABORT ON;

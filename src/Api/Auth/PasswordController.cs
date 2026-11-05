@@ -133,7 +133,7 @@ public sealed class PasswordController : ControllerBase
     string passwordHash = _passwordHasher.Hash(request.NewPassword);
 
     // Checks the token again, atomically: it may have been used since the lookup above.
-    int? userId = await _resetStore.ResetPasswordAsync(tokenHash, passwordHash, cancellationToken);
+    int? userId = await _resetStore.CompleteResetAsync(tokenHash, passwordHash, cancellationToken);
     if (userId is null)
     {
       _logger.LogInformation("Password reset with a link that was used or expired a moment ago.");
