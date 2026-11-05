@@ -15,6 +15,8 @@
 //   - Hold the API's connection string. The deploy workflow sets it from a GitHub secret.
 //     App settings listed here would replace the whole set on every run of this file and
 //     wipe the connection string, so the web app gets none here at all.
+//   - Send email. Password reset emails go through Resend, an HTTP service outside Azure,
+//     set up by hand (docs/deploy-azure.md, step 7). Nothing for it lives in this file.
 
 targetScope = 'resourceGroup'
 

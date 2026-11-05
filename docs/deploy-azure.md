@@ -131,6 +131,8 @@ Then **Settings > Secrets and variables > Actions > Variables**, add these **rep
 | `DEMO_ENABLED` | `true` for a public demo with a shared account; leave unset otherwise |
 | `DEMO_PASSWORD` | The demo account's password, at least 12 characters. Not a secret: the sign-in page shows it |
 | `DEMO_EMAIL` | Optional. The demo account's email; default `guest@example.com` |
+| `EMAIL_ENABLED` | `true` to send password reset emails; leave unset for now (see step 7) |
+| `EMAIL_FROM` | The sender, for example `Dashboard Starter <noreply@notify.example.com>` (see step 7) |
 
 None of the variables are secret: they say where to deploy, not how to get in. The demo password is no exception: it's printed on the sign-in page on purpose. With the GitHub CLI it's quicker:
 
@@ -156,7 +158,7 @@ Merge anything to `main`. To redeploy the current `main` without a new commit, o
 4. Runs `src/Db app-user`, which creates the API's login (or resets its password) with data access only.
 5. If `DEMO_ENABLED` is `true`, runs `src/Db demo`: the "Demo" and "Other Demo" tenants and the shared demo account, with `DEMO_PASSWORD`. It only changes the password when the variable changed, so people trying the demo stay signed in across deploys.
 6. Closes the firewall again, even if a step failed.
-7. Sets the app settings: the connection string (the API's login, not the admin), `CanonicalHost`, `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` (so the app sees HTTPS and each visitor's IP behind App Service's front end), where the Data Protection keys live, and the demo account the sign-in page shows.
+7. Sets the app settings: the connection string (the API's login, not the admin), `CanonicalHost`, `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` (so the app sees HTTPS and each visitor's IP behind App Service's front end), where the Data Protection keys live, the demo account the sign-in page shows, and, if `EMAIL_ENABLED` is `true`, the sender and Resend key for password reset emails (step 7). With email on, it first checks the settings and the domain's DNS records, and stops if something is missing.
 8. Deploys the zip and waits for `/api/health` to report healthy **and** the commit it just deployed. Healthy alone could be the previous version, still answering while the new one starts.
 
 Then open `https://<APP>.azurewebsites.net`. The footer shows the build number and commit. If a deploy lands while a tab is open, the page notices on its next health check and offers a reload.
@@ -187,6 +189,45 @@ To serve the app on your own domain, for example `dashboard.example.com`, with a
 With `CanonicalHost` set, the API permanently redirects every other host name, including `<APP>.azurewebsites.net`, to the canonical one. That matters from step 5 (authentication) on: cookies belong to one host, so a user who signed in on one name would be signed out on another. `/api/health` is answered on every host, so health checks keep working on the default name.
 
 The certificates renew automatically. Host names and certificates aren't in the Bicep file, so rerunning it leaves them alone.
+
+## 7. Email (optional)
+
+Password reset sends an email with a one-time link. The app sends it through [Resend](https://resend.com), called over its REST API with a plain `HttpClient`: no package, and nothing Azure-specific, so it works the same from any host. Without email set up, the app still runs: the sign-in page hides "Forgot password?", and nothing is sent.
+
+Email needs a custom domain first (step 6). Reset links are built from `CANONICAL_HOST`, never from the request, so a forged `Host` header can't point a link at someone else's site.
+
+1. **Pick a sending subdomain**, for example `notify.example.com`. Use a subdomain, not your bare domain: it keeps this app's sending reputation separate, and leaves any mail you already handle on the bare domain alone. It can't be the app's own host name either: that one is a `CNAME`, and a `CNAME` can't have other records next to it.
+2. **Add the domain in Resend.** Create an account, then **Domains > Add domain**: the subdomain, and the region nearest your app (`us-east-1` for this repo's demo). Leave open and click tracking off: password emails shouldn't carry tracking links or pixels.
+3. **Add the DNS records** Resend shows. Copy the values from the Resend page; the ones below show the shape. Names are relative to your zone (`example.com`); with Cloudflare, set every record to **DNS only** (gray cloud), since a proxied record isn't visible to mail servers.
+
+   | Type | Name | Value | Why |
+   | --- | --- | --- | --- |
+   | `MX` | `send.notify` | `feedback-smtp.us-east-1.amazonses.com`, priority 10 | Where bounces go |
+   | `TXT` | `send.notify` | `v=spf1 include:amazonses.com ~all` | SPF: who may send for the bounce domain |
+   | `TXT` | `resend._domainkey.notify` | `p=...` (long key from Resend) | DKIM: proves the mail is really from you |
+   | `TXT` | `_dmarc.notify` | `v=DMARC1; p=none;` | DMARC: Gmail and Outlook trust mail more with one. Start with `p=none` and tighten later |
+
+   Then click **Verify DNS Records** in Resend and wait for the domain to show **Verified** (minutes, usually; up to 72 hours).
+4. **Check the records from outside** before the first deploy with email on. The deploy runs these same checks and stops if one is empty:
+
+   ```bash
+   dig +short TXT resend._domainkey.notify.example.com
+   dig +short MX send.notify.example.com
+   dig +short TXT send.notify.example.com
+   ```
+
+5. **Create an API key** in Resend: **API Keys > Create**, permission **Sending access**, restricted to the one domain. The app only ever sends, so that's all the key can do; if it leaks, it can't read your account or send from another domain.
+6. **Give GitHub the key and turn email on:**
+
+   ```bash
+   gh secret set RESEND_API_KEY --env demo --body "re_..."
+   gh variable set EMAIL_FROM --body "Dashboard Starter <noreply@notify.example.com>"
+   gh variable set EMAIL_ENABLED --body true
+   ```
+
+   Then run CI on `main` by hand to redeploy. The deploy checks that the key, `EMAIL_FROM` and `CANONICAL_HOST` are set and that the DNS records above resolve, and stops with a message if not. The key it can't check this way (a sending key can't read the domain's status), so confirm **Verified** in Resend yourself.
+
+To turn email off again, remove `EMAIL_ENABLED` (or set it to anything but `true`) and redeploy: the deploy clears the email settings. To use a different email service, implement `IEmailSender` in `src/Api/Email/`; nothing else in the app knows which service sends.
 
 ## Day to day
 
