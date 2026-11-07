@@ -11,10 +11,18 @@ BEGIN
   INSERT INTO dbo.Tenants (Name) VALUES (N'Globex Industries');
 END
 
+-- IsDemo = 1, like the deployed demo account: its password is published, so it gets no
+-- reset emails, can't change its password, and failed sign-ins don't lock it out.
 IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE Email = N'demo@example.com')
 BEGIN
-  INSERT INTO dbo.Users (Email, DisplayName) VALUES (N'demo@example.com', N'Demo User');
+  INSERT INTO dbo.Users (Email, DisplayName, IsDemo) VALUES (N'demo@example.com', N'Demo User', 1);
 END
+
+-- Databases seeded before the flag was set here: fix them on the next seed.
+UPDATE dbo.Users
+SET IsDemo = 1
+WHERE Email = N'demo@example.com'
+  AND IsDemo = 0;
 
 INSERT INTO dbo.TenantUsers (TenantId, UserId, Status)
 SELECT t.Id, u.Id, 'Active'
