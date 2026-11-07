@@ -3,6 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Never tell another site which page a visitor came from. The reset password page briefly
+      holds a reset token in its address; this keeps it out of any Referer header. The API
+      sends the same rule as a header; this covers the Vite dev server too.
+    -->
+    <meta name="referrer" content="no-referrer" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Dashboard Starter</title>
     <!--

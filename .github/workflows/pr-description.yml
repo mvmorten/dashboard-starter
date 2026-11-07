@@ -1,0 +1,29 @@
+# Fails while a pull request's description still says TODO. The description becomes the
+# squash commit message and the source for the blog post, so it has to be finished before
+# merging (step 5 merged with its Checks and Build log still saying TODO).
+#
+# The body is passed in through an environment variable, never written into the script with
+# ${{ }}: the shell would run any $(...) or backticks someone put in the description.
+name: PR description
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  no-todo:
+    name: PR description has no TODO
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Look for TODO in the description
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if printf '%s' "$PR_BODY" | grep -q 'TODO'; then
+            echo "The PR description still contains TODO. Finish the description (Checks, Build log) before merging:"
+            printf '%s\n' "$PR_BODY" | grep -n 'TODO'
+            exit 1
+          fi
+          echo "No TODO in the PR description."

@@ -90,6 +90,28 @@ jobs:
           echo 'a-long-enough-password' | $db create-user --email locked@example.com --name "Locked Out" --tenant "Acme Corporation" --password-stdin
           echo 'a-long-enough-password' | PasswordHashing__Iterations=1 $db create-user --email weak@example.com --name "Weak Hash" --password-stdin
 
+          # For the password reset checks (password-checks.sh).
+          echo 'a-long-enough-password' | $db create-user --email reset@example.com --name "Reset Example" --tenant "Acme Corporation" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email change@example.com --name "Change Example" --tenant "Acme Corporation" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email capped@example.com --name "Capped Example" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email expiry@example.com --name "Expiry Example" --password-stdin
+
+          # The password rules (src/Db/Passwords/PasswordRules.cs): 12 to 128 characters, and not
+          # the account's own email. The API uses the same rules.
+          if echo 'eleven-char' | $db create-user --email rules@example.com --name Rules --password-stdin; then
+            echo "create-user accepted an 11-character password."
+            exit 1
+          fi
+          if printf 'a%.0s' $(seq 1 129) | $db create-user --email rules@example.com --name Rules --password-stdin; then
+            echo "create-user accepted a 129-character password."
+            exit 1
+          fi
+          if echo 'Rules@Example.com' | $db create-user --email rules@example.com --name Rules --password-stdin; then
+            echo "create-user accepted the email address as the password."
+            exit 1
+          fi
+          echo 'twelve-chars' | $db create-user --email rules@example.com --name Rules --password-stdin
+
           # A password on the command line is refused outright.
           if $db set-password --email ann@example.com --password oops; then
             echo "set-password accepted a password argument."
@@ -133,14 +155,18 @@ jobs:
           fi
           echo "CREATE TABLE was refused, as it should be."
 
-      # Keeps running in the background for the sign-in checks. SessionCheckSeconds=2 lets the
-      # set-password check see the session end in seconds rather than a minute, and a higher
-      # sign-in limit leaves room for the lockout checks before the rate-limit check.
+      # Keeps running in the background for the sign-in and password checks. SessionCheckSeconds=2
+      # lets the set-password check see the session end in seconds rather than a minute, and a
+      # higher sign-in limit leaves room for the lockout checks before the rate-limit check.
+      # Reset emails are written as files to .dev-mail (Development), where password-checks.sh
+      # reads them; the password limit is raised so the checks don't hit it.
       - name: API starts and reports healthy (as the app login)
         env:
           ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
           Auth__SessionCheckSeconds: "2"
           Auth__SignInPermitLimit: "50"
+          PasswordReset__PermitLimit: "100"
+          Email__DevFolder: ${{ github.workspace }}/.dev-mail
         run: |
           dotnet run --no-build --configuration Release --project src/Api > api.log 2>&1 &
           for attempt in $(seq 1 30); do
@@ -152,6 +178,36 @@ jobs:
           cat api.log
           cat health.json
           grep -q '"status":"Healthy"' health.json
+
+      # Forgot, reset, and change password: the same answer for every address, emails only to
+      # real accounts, single-use links, sessions ending, the hourly cap, and the password rules.
+      # Before the sign-in checks, whose last check uses up this address's sign-in limit.
+      - name: Password checks
+        env:
+          MAIL: ${{ github.workspace }}/.dev-mail
+        run: bash .github/scripts/password-checks.sh
+
+      # A second API with 2-second reset links, to see one expire. --urls on the command line,
+      # because the launch profile would override ASPNETCORE_URLS.
+      - name: Password reset links expire
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          PasswordReset__TokenLifetimeSeconds: "2"
+          PasswordReset__PermitLimit: "100"
+          Email__DevFolder: ${{ github.workspace }}/.dev-mail
+          MAIL: ${{ github.workspace }}/.dev-mail
+          BASE: http://localhost:5082
+        run: |
+          dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5082 > api-expiry.log 2>&1 &
+          pid=$!
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:5082/api/health -o /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          bash .github/scripts/password-checks.sh expiry || { cat api-expiry.log; exit 1; }
+          kill $pid
 
       # Sign in and out, wrong passwords, lockout, the demo account, antiforgery, switching
       # tenants, SESSION_CONTEXT, set-password ending a session, and the rate limit.
@@ -225,8 +281,14 @@ jobs:
           [ "$status" = "401" ]
           grep -q '"status":401' me.json
 
-          # No demo account configured: the sign-in page shows none.
-          curl -sf http://localhost:5081/api/auth/sign-in-info | grep -q '"demoAccount":null'
+          # No demo account and no email configured: the sign-in page shows neither the demo
+          # account nor "Forgot password?".
+          curl -sf http://localhost:5081/api/auth/sign-in-info -o sign-in-info.json
+          grep -q '"demoAccount":null' sign-in-info.json
+          grep -q '"emailEnabled":false' sign-in-info.json
+
+          # Every response asks the browser not to send a Referer to other sites.
+          curl -sI http://localhost:5081/api/health | grep -qi '^referrer-policy: no-referrer'
 
           # Deployed cookies: __Host- names, Secure, HttpOnly where script mustn't read them.
           https="-H X-Forwarded-Proto:https"

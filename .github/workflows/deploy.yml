@@ -182,6 +182,13 @@ jobs:
       # the resource group; infra/main.bicep creates them.
       #
       # Demo__*: the demo account the sign-in page shows, or nothing when DEMO_ENABLED isn't true.
+      #
+      # Email__*: the sender and Resend key for password reset emails, or nothing when
+      # EMAIL_ENABLED isn't true (the app then hides "Forgot password?"). With email on, the
+      # step first checks that everything it needs exists, so a missing piece stops the deploy
+      # here with a clear message instead of failing later, quietly, when someone asks for a
+      # reset (docs/deploy-azure.md, step 7). The key is a sending-only key and can't read the
+      # domain's status from Resend, so the check looks at the domain's public DNS records.
       - name: Configure the app
         env:
           CONNECTION_STRING: Server=tcp:${{ env.SQL_SERVER_NAME }}.database.windows.net,1433;Database=${{ env.DATABASE_NAME }};User Id=${{ env.APP_DB_USER }};Password=${{ secrets.APP_DB_PASSWORD }};Encrypt=True;TrustServerCertificate=False;Connect Timeout=60
@@ -189,7 +196,39 @@ jobs:
           DEMO_ENABLED: ${{ vars.DEMO_ENABLED }}
           DEMO_EMAIL: ${{ vars.DEMO_EMAIL || 'guest@example.com' }}
           DEMO_PASSWORD: ${{ vars.DEMO_PASSWORD }}
+          EMAIL_ENABLED: ${{ vars.EMAIL_ENABLED }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: |
+          if [ "$EMAIL_ENABLED" = "true" ]; then
+            if [ -z "$RESEND_API_KEY" ] || [ -z "$EMAIL_FROM" ] || [ -z "$CANONICAL_HOST" ]; then
+              echo "EMAIL_ENABLED is true, but RESEND_API_KEY (demo environment secret), EMAIL_FROM or CANONICAL_HOST is empty. See docs/deploy-azure.md, step 7."
+              exit 1
+            fi
+            # "Name <noreply@notify.example.com>" or "noreply@notify.example.com" -> notify.example.com
+            domain=$(printf '%s' "$EMAIL_FROM" | sed -E 's/.*@([^>[:space:]]+).*/\1/')
+            if [ -z "$(dig +short TXT "resend._domainkey.$domain")" ]; then
+              echo "No DKIM record at resend._domainkey.$domain. Add the DNS records from Resend (docs/deploy-azure.md, step 7)."
+              exit 1
+            fi
+            # Resend may publish send.<domain> as its own MX and TXT records or as a CNAME to
+            # its servers; dig follows the CNAME, so both shapes pass. A CNAME alone prints its
+            # target, so match the record itself: an MX line starts with its priority.
+            if ! dig +short MX "send.$domain" | grep -qE '^[0-9]+ '; then
+              echo "No MX record at send.$domain. Add the DNS records from Resend (docs/deploy-azure.md, step 7)."
+              exit 1
+            fi
+            if ! dig +short TXT "send.$domain" | grep -q 'v=spf1'; then
+              echo "No SPF record at send.$domain. Add the DNS records from Resend (docs/deploy-azure.md, step 7)."
+              exit 1
+            fi
+            echo "Email on: DNS records for $domain found. Check that Resend shows the domain as Verified."
+          else
+            EMAIL_FROM=""
+            RESEND_API_KEY=""
+          fi
+
+
           storage=$(az storage account list --resource-group "$AZURE_RESOURCE_GROUP" \
             --query "[?tags.purpose=='dataprotection'] | [0].primaryEndpoints.blob" --output tsv)
           vault=$(az keyvault list --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -218,6 +257,7 @@ jobs:
               "ASPNETCORE_FORWARDEDHEADERS_ENABLED=true" \
               "DataProtection__BlobUri=${storage}dataprotection/keys.xml" "DataProtection__KeyId=$key_id" \
               "Demo__Email=$DEMO_EMAIL" "Demo__Password=$DEMO_PASSWORD" \
+              "Email__From=$EMAIL_FROM" "Email__ResendApiKey=$RESEND_API_KEY" \
             --output none
 
       - name: Deploy the code

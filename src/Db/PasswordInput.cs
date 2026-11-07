@@ -11,11 +11,11 @@ namespace DashboardStarter.Db;
 /// </summary>
 internal static class PasswordInput
 {
-  public static string Read(bool fromStdin)
+  public static string Read(bool fromStdin, string email)
   {
     string password = fromStdin ? ReadFromStdin() : ReadFromPrompt();
 
-    string? problem = PasswordRules.Check(password);
+    string? problem = PasswordRules.Check(password, email);
     if (problem is not null)
     {
       throw new RunnerException(problem);

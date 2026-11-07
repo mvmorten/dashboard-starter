@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using System.Threading.Tasks;
 using DashboardStarter.Api.Auth;
 using DashboardStarter.Api.Database;
+using DashboardStarter.Api.Email;
 using DashboardStarter.Api.Hosting;
 using DashboardStarter.Db.Passwords;
 using Microsoft.AspNetCore.Authorization;
@@ -42,6 +43,7 @@ public static class Program
 
     AddAuthentication(builder);
     DataProtectionSetup.AddDataProtectionKeys(builder.Services, builder.Configuration);
+    EmailSetup.AddEmail(builder.Services, builder.Configuration, builder.Environment);
 
     // Every POST, PUT, PATCH, and DELETE to a controller needs a valid antiforgery token;
     // GET, HEAD, OPTIONS, and TRACE don't. One filter for all actions, so a new endpoint
@@ -61,7 +63,8 @@ public static class Program
     WebApplication app = builder.Build();
 
     bool canStart = await app.Services.GetRequiredService<StartupSchemaCheck>().RunAsync()
-      && app.Services.GetRequiredService<DataProtectionCheck>().Run();
+      && app.Services.GetRequiredService<DataProtectionCheck>().Run()
+      && app.Services.GetRequiredService<EmailCheck>().Run();
     if (!canStart)
     {
       return 1;
@@ -78,6 +81,16 @@ public static class Program
     {
       app.UseHsts();
     }
+
+    // No page of this app tells another site where the visitor came from. It matters most on
+    // the reset page, whose address briefly holds a reset token: a link followed from there
+    // must not hand the token to the next site in its Referer header. (index.html has the
+    // same rule as a meta tag, for the Vite dev server.)
+    app.Use((context, next) =>
+    {
+      context.Response.Headers["Referrer-Policy"] = "no-referrer";
+      return next(context);
+    });
 
     // Production: one host name for the whole site (see CanonicalHostMiddleware).
     // Empty in Development, so nothing is redirected locally.
@@ -127,7 +140,7 @@ public static class Program
 
   /// <summary>
   /// Cookie sign-in with our own user tables (no ASP.NET Core Identity), the session check,
-  /// password hashing, antiforgery, and the sign-in rate limit.
+  /// password hashing, antiforgery, password reset, and the rate limits.
   /// </summary>
   private static void AddAuthentication(WebApplicationBuilder builder)
   {
@@ -141,6 +154,11 @@ public static class Program
     builder.Services.AddSingleton<IPasswordHasher>(new Argon2idPasswordHasher(hashing));
     builder.Services.AddSingleton<UnknownUserHash>();
     builder.Services.AddSingleton<UserStore>();
+    builder.Services.AddSingleton<PasswordResetStore>();
+
+    IConfigurationSection resetSection = builder.Configuration.GetSection(PasswordResetOptions.SectionName);
+    PasswordResetOptions resetOptions = resetSection.Get<PasswordResetOptions>() ?? new PasswordResetOptions();
+    builder.Services.Configure<PasswordResetOptions>(resetSection);
 
     // The session check caches what it reads for SessionCheckSeconds.
     builder.Services.AddMemoryCache();
@@ -191,10 +209,14 @@ public static class Program
             ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
         }
 
+        // Say which limit was hit: the password pages shouldn't talk about sign-in attempts.
+        string? policy = context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
+        string title = policy == PasswordResetOptions.RateLimitPolicyName ? "Too many password requests" : "Too many sign-in attempts";
+
         return new ValueTask(ProblemResponses.WriteAsync(
           context.HttpContext,
           StatusCodes.Status429TooManyRequests,
-          "Too many sign-in attempts",
+          title,
           "Wait a minute, then try again."));
       };
 
@@ -204,6 +226,17 @@ public static class Program
         {
           PermitLimit = authOptions.SignInPermitLimit,
           Window = TimeSpan.FromSeconds(authOptions.SignInWindowSeconds),
+          QueueLimit = 0,
+        }));
+
+      // Forgot, reset, and change password: per client address, like sign-in. The per-address
+      // email cap (PasswordReset:MaxEmailsPerHour) protects inboxes; this protects the server.
+      options.AddPolicy(PasswordResetOptions.RateLimitPolicyName, httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        SignInRateLimit.PartitionKey(httpContext),
+        _ => new FixedWindowRateLimiterOptions
+        {
+          PermitLimit = resetOptions.PermitLimit,
+          Window = TimeSpan.FromSeconds(resetOptions.WindowSeconds),
           QueueLimit = 0,
         }));
     });

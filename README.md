@@ -33,6 +33,7 @@ This repo aims to be:
 | Schema changes | Idempotent SQL scripts in `/sql`, applied by an explicit command |
 | Multi-tenancy | `TenantId` on every tenant-owned table, backed by SQL Server Row-Level Security |
 | Auth | Our own user tables, Argon2id password hashing, ASP.NET Core cookie authentication |
+| Email | [Resend](https://resend.com)'s REST API through a plain `HttpClient`, behind an `IEmailSender` interface; locally, emails are text files in `.dev-mail/` |
 | Local dev | Docker Compose runs SQL Server only; the API and front end run natively |
 | CI and deploy | GitHub Actions: build, lint, and schema checks on every pull request; deploy on every merge to `main` |
 | Hosting | Azure App Service (Linux) serving the API and the React build, Azure SQL Database, both created from Bicep in `/infra` |
@@ -132,6 +133,8 @@ It's a principle, loosely held: it guides the decision, it doesn't rule out good
 
 "Dev" packages are build and editor tooling; they aren't shipped to the browser.
 
+**Services, not packages.** Password reset emails go through [Resend](https://resend.com). It's a service the API calls over HTTP, not a package: one POST with a plain `HttpClient` (`src/Api/Email/ResendEmailSender.cs`), so there's no SDK to keep up to date. It only runs when its settings are present, and swapping it for another service means writing one class that implements `IEmailSender`.
+
 `src/Web/package.json` also has one `overrides` entry: it forces `minimatch` (the glob matcher inside ESLint and `typescript-eslint`) up to 11.0.4, because 10.x has a denial-of-service bug ([GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249)) and those packages still ask for 10.x. It's dev tooling only, and lint was checked against it. Remove the override once ESLint and `typescript-eslint` depend on minimatch 11 themselves.
 
 ## What it will include
@@ -142,7 +145,7 @@ The goal is the 80% every dashboard app needs on day one:
 - [x] Local dev environment with Docker Compose and seeded data
 - [x] App shell: sidebar navigation, top bar with tenant switcher, responsive layout, light and dark themes
 - [x] Authentication: sign in and sign out, lockout, a shared demo account
-- [ ] Password reset and change password
+- [x] Password reset and change password
 - [ ] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
 - [ ] Users, roles, and permissions, enforced on both API and UI
 - [ ] A reusable data grid with server-side paging, sorting, and filtering
@@ -181,7 +184,7 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 | 3 | [Ship Early, Ship Often: Deploying to Azure Before the First Feature](https://mvmorten.com/projects/dashboard-starter/ship-early-ship-often) | [v0.3](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.3) | Published |
 | 4 | [The App Shell: A Sidebar, a Top Bar, and Three Dependencies](https://mvmorten.com/projects/dashboard-starter/the-app-shell) | [v0.4](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.4) | Published |
 | 5 | [Signing In: Our Own Auth, and the Deploy It Broke](https://mvmorten.com/projects/dashboard-starter/signing-in) | [v0.5](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.5) | Published |
-| 6 | Password reset | v0.6 | Planned |
+| 6 | Password reset | v0.6 | In progress |
 | ... | More to come | | |
 
 ## Getting started
@@ -224,6 +227,12 @@ What just happened:
 dotnet run --project src/Db -- create-user --email ann@example.com --name "Ann Example" --tenant "Acme Corporation"
 dotnet run --project src/Db -- set-password --email ann@example.com     # also signs out her other sessions
 ```
+
+A password is 12 to 128 characters and can't be the account's own email; there are no rules about digits or symbols, following current NIST guidance. The API and the Db runner check the same rules (`src/Db/Passwords/PasswordRules.cs`).
+
+**Password reset emails, locally.** In Development nothing is sent: each email is written as a text file to `.dev-mail/` at the repo root (gitignored). Click "Forgot password?" on the sign-in page, enter the address of an account you made with `create-user` (the seeded `demo@example.com` is a demo account and never gets one), then open the newest file in `.dev-mail/` and follow its link. Links work once, for 30 minutes. Signed in, you can change your password from the account menu in the top bar.
+
+**Email on a deployed copy** is off until you set it up: the sign-in page hides "Forgot password?" and nothing is sent. Turning it on takes a Resend account, a sending subdomain with a few DNS records, and two settings (`Email__From`, `Email__ResendApiKey`); the walkthrough is step 7 of [docs/deploy-azure.md](docs/deploy-azure.md). Reset links are built from the `CanonicalHost` setting, never from the request, so a forged `Host` header can't point a link at someone else's site.
 
 `--tenant` takes a tenant's id or name; run `create-user` again with another tenant to add a second membership. Passwords are never accepted as arguments, which would end up in your shell history. For scripts, pipe the password in and add `--password-stdin`.
 
@@ -282,7 +291,7 @@ npm run format:check         # Prettier (npm run format to fix)
 npm run build                # type-check and build
 ```
 
-CI also runs the API against a real SQL Server and checks sign-in end to end with curl: wrong passwords, lockout, the demo account, antiforgery, switching tenants, and sessions ending after a password change. The script is [`.github/scripts/auth-checks.sh`](.github/scripts/auth-checks.sh), and it runs locally too (see the comment at its top).
+CI also runs the API against a real SQL Server and checks sign-in end to end with curl: wrong passwords, lockout, the demo account, antiforgery, switching tenants, and sessions ending after a password change. The script is [`.github/scripts/auth-checks.sh`](.github/scripts/auth-checks.sh). A second script, [`.github/scripts/password-checks.sh`](.github/scripts/password-checks.sh), does the same for password reset and change password: one answer for every address, emails only to real accounts (read from `.dev-mail/`), links that work once and expire, sessions that end, the hourly email cap, and the password rules. Both run locally too (see the comments at their tops).
 
 ### Security checks
 
@@ -330,6 +339,12 @@ Deployed, the sign-in and antiforgery cookies are named `__Host-ds-auth`, `__Hos
 **Why is there Azure code in the app?**
 Only for one thing: the keys that encrypt the sign-in cookie. They have to outlive a deploy, or every deploy signs everyone out, and they're worth protecting, because whoever has them can forge a session for any user. On Azure they live in Blob Storage, encrypted by Key Vault, reached with the app's managed identity (`src/Api/Hosting/DataProtectionSetup.cs`). Without its two settings the app uses ASP.NET Core's local default, so it still runs anywhere; a fork hosted elsewhere swaps in that platform's equivalent.
 
+**Why Resend for email, and not Azure's own email service?**
+The plan was Azure Communication Services Email, reached with the app's managed identity, so there'd be no key to keep. It wasn't available to us, so step 6 uses Resend: one HTTP call, a sending-only API key restricted to one domain, and nothing tied to Azure, so the "one Azure-specific piece" above stays one. The key lives where the other secrets do (the GitHub `demo` environment and App Service settings) and never in a log. Any other service fits behind `IEmailSender`.
+
+**Why do reset links put the token after a `#`?**
+The part of an address after `#` (the fragment) never leaves the browser, so the token can't end up in a server's access log or a proxy along the way. The reset page reads it, then removes it from the address bar. Only a SHA-256 hash of the token is stored, so someone who can read the database still can't use it. Links work once, for 30 minutes, and asking for a new one cancels the old one.
+
 **Why Argon2id for passwords?**
 It's OWASP's first recommendation. It's memory-hard, so each guess costs memory as well as CPU, which takes away most of an attacker's GPU advantage. Hashes are stored with their settings, so the settings can be raised later and users are rehashed automatically when they sign in.
 
@@ -340,7 +355,7 @@ A database that changes because you started the app is hidden behavior. You run 
 So "the API never changes the schema" is enforced by SQL Server, not just promised by our code. The deploy pipeline runs `migrate` with an admin login. The API connects as a separate login in the `app_runtime` role, which can read and write data but can't create, alter, or drop anything. If the API is ever compromised, the attacker gets the same limits. `dotnet run --project src/Db -- app-user` creates or updates that login.
 
 **Why Azure?**
-It's the natural home for a .NET and SQL Server app, and App Service plus Azure SQL means no servers or containers to manage. Settings come from environment variables, and the app runs anywhere .NET and SQL Server do. The one Azure-specific piece is where the cookie encryption keys are kept (see above), and it switches off without its settings. Azure is the one deployment path we document and test, the same way Docker is the one local setup.
+It's the natural home for a .NET and SQL Server app, and App Service plus Azure SQL means no servers or containers to manage. Settings come from environment variables, and the app runs anywhere .NET and SQL Server do. The one Azure-specific piece is where the cookie encryption keys are kept (see above), and it switches off without its settings. Email goes through Resend over plain HTTP, so it works the same from any host. Azure is the one deployment path we document and test, the same way Docker is the one local setup.
 
 **Why Docker for the database?**
 It's the one setup that works the same on Windows, Mac, and Linux, with the same SQL Server version as CI. Docker only runs the database, so you debug the API and front end normally.

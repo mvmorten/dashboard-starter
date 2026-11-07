@@ -36,14 +36,14 @@ internal static class DemoCommand
       throw new RunnerException("Set DEMO_PASSWORD to the demo account's password. It's shown on the sign-in page, so it isn't a secret.");
     }
 
-    string? problem = PasswordRules.Check(password);
+    string? configuredEmail = Environment.GetEnvironmentVariable("DEMO_EMAIL");
+    string email = UserAccounts.NormalizeEmail(string.IsNullOrWhiteSpace(configuredEmail) ? DefaultEmail : configuredEmail);
+
+    string? problem = PasswordRules.Check(password, email);
     if (problem is not null)
     {
       throw new RunnerException("DEMO_PASSWORD: " + problem);
     }
-
-    string? configuredEmail = Environment.GetEnvironmentVariable("DEMO_EMAIL");
-    string email = UserAccounts.NormalizeEmail(string.IsNullOrWhiteSpace(configuredEmail) ? DefaultEmail : configuredEmail);
     IPasswordHasher hasher = settings.CreatePasswordHasher();
 
     SchemaGuard.WriteHeader($"Demo account {email}", settings);

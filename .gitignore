@@ -1,6 +1,9 @@
 # Local dev secrets (copy .env.example to .env)
 .env
 
+# Password reset emails written locally in Development (src/Api/appsettings.Development.json)
+.dev-mail/
+
 # .NET
 bin/
 obj/
