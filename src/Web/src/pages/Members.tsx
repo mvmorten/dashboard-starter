@@ -119,8 +119,7 @@ function MemberTable({
       <table className="members-table">
         <thead>
           <tr>
-            <th scope="col">Name</th>
-            <th scope="col">Email</th>
+            <th scope="col">Member</th>
             <th scope="col">Role</th>
             <th scope="col">Status</th>
             <th scope="col">Last sign-in</th>
@@ -136,15 +135,17 @@ function MemberTable({
             <tr key={member.userId}>
               <th scope="row">
                 <MemberName member={member} controls={controls} />
+                <span className="member-email">{member.email}</span>
               </th>
-              <td className="member-email">{member.email}</td>
-              <td>
+              <td className="member-nowrap">
                 <RoleControl member={member} controls={controls} />
               </td>
               <td>
                 <StatusBadge member={member} />
               </td>
-              <td>{formatSignIn(member.lastSignInAt)}</td>
+              <td className="member-nowrap">
+                {formatSignIn(member.lastSignInAt)}
+              </td>
               {controls.manage && (
                 <td>
                   <StatusButton member={member} controls={controls} />

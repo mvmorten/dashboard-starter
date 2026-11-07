@@ -116,3 +116,14 @@
 .members-table tbody th {
   font-weight: 600;
 }
+
+/* The email sits under the name, so the table needs one wide column, not two. */
+.members-table .member-email {
+  display: block;
+  font-weight: 400;
+}
+
+.members-table thead th,
+.member-nowrap {
+  white-space: nowrap;
+}
