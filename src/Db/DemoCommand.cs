@@ -1,31 +1,20 @@
 using System;
 using System.Threading.Tasks;
 using DashboardStarter.Db.Passwords;
-using DashboardStarter.Db.Scripts;
 using DashboardStarter.Db.Users;
 using Microsoft.Data.SqlClient;
 
 namespace DashboardStarter.Db;
 
 /// <summary>
-/// <c>demo</c>: the shared account for a public demo. Creates the "Demo" and "Other Demo" tenants and the demo
-/// user (IsDemo = 1) with the published password from DEMO_PASSWORD (and DEMO_EMAIL, default
-/// guest@example.com). Runs in any environment, unlike seed; the deploy runs it when the repo
-/// variable DEMO_ENABLED is true.
+/// <c>demo</c>: the shared account for a public demo, with the published password from
+/// DEMO_PASSWORD (and DEMO_EMAIL, default guest@example.com). Runs in any environment, unlike
+/// seed; the deploy runs it when the repo variable DEMO_ENABLED is true. What the account is
+/// (its tenants and memberships) is defined once, in <see cref="DemoAccountSetup"/>, which seed
+/// uses too.
 /// </summary>
-/// <remarks>
-/// Safe to run on every deploy. The password is only set when it doesn't already match, so an
-/// unchanged DEMO_PASSWORD keeps the security stamp, and people trying the demo stay signed in
-/// across deploys. It refuses to turn an existing ordinary account into the demo account,
-/// since that would publish the account's new password.
-/// </remarks>
 internal static class DemoCommand
 {
-  // Two tenants, so the demo shows the tenant switcher and that each tenant only sees its own data.
-  private static readonly string[] TenantNames = ["Demo", "Other Demo"];
-  private const string DisplayName = "Demo Guest";
-  private const string DefaultEmail = "guest@example.com";
-
   public static async Task<int> RunAsync(RunnerSettings settings, string[] args)
   {
     CommandArguments.Parse(args, [], []);
@@ -37,7 +26,7 @@ internal static class DemoCommand
     }
 
     string? configuredEmail = Environment.GetEnvironmentVariable("DEMO_EMAIL");
-    string email = UserAccounts.NormalizeEmail(string.IsNullOrWhiteSpace(configuredEmail) ? DefaultEmail : configuredEmail);
+    string email = UserAccounts.NormalizeEmail(string.IsNullOrWhiteSpace(configuredEmail) ? DemoAccountSetup.DefaultEmail : configuredEmail);
 
     string? problem = PasswordRules.Check(password, email);
     if (problem is not null)
@@ -51,54 +40,7 @@ internal static class DemoCommand
     await using SqlConnection connection = await settings.OpenAsync();
     await SchemaGuard.EnsureCurrentAsync(connection);
     await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync();
-
-    UserRow? user = await UserAccounts.FindByEmailAsync(connection, transaction, email);
-    if (user is { IsDemo: false })
-    {
-      throw new RunnerException(
-        $"{email} already exists as an ordinary account. The demo password is published, so it won't take over a real account. Set DEMO_EMAIL to another address.");
-    }
-
-    int userId;
-    if (user is null)
-    {
-      userId = await UserAccounts.InsertAsync(connection, transaction, email, DisplayName, isDemo: true);
-      ScriptExecutor.PrintResult("created", "user " + email, "id " + userId);
-    }
-    else
-    {
-      userId = user.Id;
-      ScriptExecutor.PrintResult("exists", "user " + email, "id " + userId);
-    }
-
-    foreach (string tenantName in TenantNames)
-    {
-      (int tenantId, bool tenantCreated) = await UserAccounts.EnsureTenantAsync(connection, transaction, tenantName);
-      ScriptExecutor.PrintResult(tenantCreated ? "created" : "exists", "tenant " + tenantName, "id " + tenantId);
-
-      string membership = await UserAccounts.EnsureMembershipAsync(connection, transaction, tenantId, userId);
-      ScriptExecutor.PrintResult(membership, "member of " + tenantName);
-    }
-
-    PasswordVerification current = user?.PasswordHash is null
-      ? PasswordVerification.Failed
-      : hasher.Verify(password, user.PasswordHash);
-
-    if (current == PasswordVerification.Failed)
-    {
-      await UserAccounts.SetPasswordAsync(connection, transaction, userId, hasher.Hash(password));
-      ScriptExecutor.PrintResult("set", "password", user is null ? null : "changed; demo sessions signed out");
-    }
-    else if (current == PasswordVerification.SuccessRehashNeeded)
-    {
-      await UserAccounts.ReplaceHashAsync(connection, transaction, userId, hasher.Hash(password));
-      ScriptExecutor.PrintResult("rehashed", "password", "same password, current settings");
-    }
-    else
-    {
-      ScriptExecutor.PrintResult("unchanged", "password");
-    }
-
+    await DemoAccountSetup.EnsureAsync(connection, transaction, email, password, hasher);
     await transaction.CommitAsync();
 
     Console.WriteLine();

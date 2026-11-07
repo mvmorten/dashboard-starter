@@ -8,7 +8,7 @@ using Microsoft.Data.SqlClient;
 namespace DashboardStarter.Db.Users;
 
 /// <summary>
-/// The SQL behind create-user, set-password, and demo. All of it runs inside the caller's
+/// The SQL behind create-user, set-password, demo, and the demo account in seed. All of it runs inside the caller's
 /// transaction, so a command either does everything or nothing.
 /// </summary>
 internal static class UserAccounts
@@ -41,12 +41,14 @@ internal static class UserAccounts
       sql, new { Email = email, DisplayName = displayName, IsDemo = isDemo }, transaction);
   }
 
+  /// <summary>Sets the display name. Leaves the row alone (UpdatedAt too) when it's already that name.</summary>
   public static async Task UpdateNameAsync(SqlConnection connection, SqlTransaction transaction, int userId, string displayName)
   {
     const string sql = """
       UPDATE dbo.Users
       SET DisplayName = @DisplayName, UpdatedAt = SYSUTCDATETIME()
-      WHERE Id = @Id;
+      WHERE Id = @Id
+        AND DisplayName <> @DisplayName COLLATE Latin1_General_BIN2;
       """;
 
     await connection.ExecuteAsync(sql, new { Id = userId, DisplayName = displayName }, transaction);

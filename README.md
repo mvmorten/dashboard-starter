@@ -48,7 +48,7 @@ This repo aims to be:
 - **Roles are per tenant.** You can be an admin in one tenant and read-only in another (`TenantUserRoles`).
 - **Switching tenants.** With one tenant you go straight in. With several, you land in the one you used last and can switch from the top bar. The auth cookie holds your user and current tenant; switching checks your membership and issues a new cookie.
 - **Removing access works right away.** Memberships can be disabled per tenant, and the API rechecks membership on each request, cached for at most a minute (`Auth:SessionCheckSeconds`). The same check ends every session of a user whose password changed or who is locked out.
-- The development seed creates two demo tenants and a demo user who belongs to both. A real deployment starts empty: create your first tenant, and if your app only ever needs one, you can ignore the rest.
+- The development seed creates the same demo account as the live demo, in its two tenants ("Demo" and "Other Demo"), plus two sample tenants for your own test users. A real deployment starts empty: create your first tenant, and if your app only ever needs one, you can ignore the rest.
 
 ## Database conventions
 
@@ -66,7 +66,7 @@ This repo aims to be:
 /sql
   /migrations     run once, in order: tables, columns, indexes, data fixes
   /programmable   rerun every time: views, functions, procs, RLS predicates
-  /seed           development only: demo tenant, users, sample data
+  /seed           development only: sample data (the demo account is made in C#, see below)
 ```
 
 - **Migrations** are numbered (`0001_tenants.sql`, `0002_users.sql`, ...) and idempotent: each checks before it changes (`IF NOT EXISTS`, `IF COL_LENGTH(...) IS NULL`), so running one twice is safe. Once a migration has run, it's never edited. A change is a new script.
@@ -210,7 +210,7 @@ npm install
 npm run dev                                # front end on http://localhost:5173
 ```
 
-Open <http://localhost:5173> and sign in as the seeded user: **`demo@example.com`**, password **`LocalDevOnly!Demo1`** (the sign-in page shows them too, with a button that fills them in). Like the SQL Server password in `.env.example`, that password is for your laptop only; `seed` refuses to run anywhere but Development. You'll land in one of the two demo tenants and can switch to the other from the top bar. The Health page shows three green checks: the front end, the API, and the database, with the schema version the database is on.
+Open <http://localhost:5173> and sign in as the demo account: **`guest@example.com`**, password **`LocalDevOnly!Demo1`** (the sign-in page shows them too, with a button that fills them in). Like the SQL Server password in `.env.example`, that password is for your laptop only; `seed` refuses to run anywhere but Development. You'll land in one of the two demo tenants and can switch to the other from the top bar. The Health page shows three green checks: the front end, the API, and the database, with the schema version the database is on.
 
 ![The health check page: front end, API, and database all ok, with the SQL Server version and schema version 0004_security_schema.sql](docs/images/health-check.png)
 
@@ -218,7 +218,7 @@ What just happened:
 
 - **Docker** runs SQL Server 2025 only, on port 1433, with its data in a named volume (`sqlserver-data`) so it survives restarts.
 - **`migrate`** creates the `DashboardStarter` database if it's missing, runs any new scripts in `sql/migrations`, then reruns everything in `sql/programmable`. It prints `applied`, `skipped`, or `failed` for each file. Run it as often as you like; the second run skips everything.
-- **`seed`** adds two demo tenants (Acme Corporation and Globex Industries) and one demo user, `demo@example.com`, who belongs to both and has the password above. It refuses to run outside Development.
+- **`seed`** runs the scripts in `sql/seed` (two sample tenants, Acme Corporation and Globex Industries, for accounts you make yourself), then creates the demo account, `guest@example.com`, in the "Demo" and "Other Demo" tenants with the password above. That's the same code the `demo` command runs on the live demo (`src/Db/Users/DemoAccountSetup.cs`), so the account is the same locally and deployed; only the password differs. It refuses to run outside Development. (Seeded before step 7? Your database still has the old `demo@example.com`. It's harmless; `docker compose down -v` starts over without it.)
 - **The API** checks at startup that no migrations are pending. If one is, it refuses to start and tells you to run `migrate`. It never changes the schema itself.
 - **The front end** runs on the Vite dev server, which forwards `/api` to the API, so the browser only ever talks to one origin.
 
@@ -231,7 +231,7 @@ dotnet run --project src/Db -- set-password --email ann@example.com     # also s
 
 A password is 12 to 128 characters and can't be the account's own email; there are no rules about digits or symbols, following current NIST guidance. The API and the Db runner check the same rules (`src/Db/Passwords/PasswordRules.cs`).
 
-**Password reset emails, locally.** In Development nothing is sent: each email is written as a text file to `.dev-mail/` at the repo root (gitignored). Click "Forgot password?" on the sign-in page, enter the address of an account you made with `create-user` (the seeded `demo@example.com` is a demo account and never gets one), then open the newest file in `.dev-mail/` and follow its link. Links work once, for 30 minutes. Signed in, you can change your password from the account menu in the top bar.
+**Password reset emails, locally.** In Development nothing is sent: each email is written as a text file to `.dev-mail/` at the repo root (gitignored). Click "Forgot password?" on the sign-in page, enter the address of an account you made with `create-user` (the demo account `guest@example.com` never gets one), then open the newest file in `.dev-mail/` and follow its link. Links work once, for 30 minutes. Signed in, you can change your password from the account menu in the top bar.
 
 **Email on a deployed copy** is off until you set it up: the sign-in page hides "Forgot password?" and nothing is sent. Turning it on takes a Resend account, a sending subdomain with a few DNS records, and two settings (`Email__From`, `Email__ResendApiKey`); the walkthrough is step 7 of [docs/deploy-azure.md](docs/deploy-azure.md). Reset links are built from the `CanonicalHost` setting, never from the request, so a forged `Host` header can't point a link at someone else's site.
 

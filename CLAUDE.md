@@ -14,6 +14,7 @@ An opinionated, open-source dashboard starter: React + TypeScript, ASP.NET Core,
 - One branch per change, named by area or step: `step-2/solution-layout`, `docs/readme-fix`.
 - Every PR description explains what changed and **why**. PR descriptions become squash commit messages and are source material for the blog posts.
 - Keep a short **build log** in the PR description while working: decisions made, things that surprised you, anything that broke and how it was fixed. Mistakes are part of the story; include them.
+- Anything still to do before merging is a `- [ ]` checkbox in the PR description, never a sentence. The PR description check (`pr-description.yml`) fails on an unchecked box, as it does on the word TODO. Boxes inside fenced code blocks and quotes don't count.
 - Each blog post gets a release tag `v0.N` (post number). The maintainer creates tags and releases.
 - If a change needs a decision that isn't covered here or in the README, stop and ask rather than picking a default.
 - Testing anything other than Development? Run the API and the Db runner with `dotnet run --no-launch-profile`. The launch profiles set the environment to Development and silently override whatever you set; this has bitten the deploy and the app shell steps.
@@ -91,6 +92,7 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 - To change something a migration already did, write a new migration.
 - Apply with `dotnet run --project src/Db -- migrate`; seed with `dotnet run --project src/Db -- seed`; create or update the API's login with `dotnet run --project src/Db -- app-user`.
 - Accounts: `create-user`, `set-password` (prompt or `--password-stdin`, never a password argument), and `demo` (the public demo account, from `DEMO_PASSWORD`).
+- The demo account is defined once, in `src/Db/Users/DemoAccountSetup.cs`: `demo` and `seed` both call it, so locally and deployed it's the same account (`guest@example.com`, tenants "Demo" and "Other Demo"). Change the demo account there, never in a seed script.
 - The runner journals migrations in `SchemaVersions` (file name, content hash, applied at), skips applied ones, and fails if an applied migration's hash changed.
 - **The API never changes the schema.** At startup it only checks that no migrations are pending and refuses to start with a clear message naming the command to run.
 

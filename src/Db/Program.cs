@@ -13,7 +13,7 @@ public static class Program
   private const string Usage = """
     Usage:
       dotnet run --project src/Db -- migrate   Create the database if missing, apply new migrations, rerun programmable objects.
-      dotnet run --project src/Db -- seed      Load development data from sql/seed (Development only).
+      dotnet run --project src/Db -- seed      Load development data from sql/seed and the demo account (Development only).
       dotnet run --project src/Db -- app-user  Create or update the API's login (APP_DB_USER, APP_DB_PASSWORD): data access only.
 
       dotnet run --project src/Db -- create-user --email <email> --name <name> [--tenant <id or name>] [--password-stdin]
