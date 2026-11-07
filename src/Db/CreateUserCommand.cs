@@ -39,7 +39,7 @@ internal static class CreateUserCommand
     UserRow? existing = await UserAccounts.FindByEmailAsync(connection, transaction, email);
     if (existing is { IsDemo: true })
     {
-      throw new RunnerException($"{email} is the demo account. Its password comes from DEMO_PASSWORD; use the demo command.");
+      throw new RunnerException(DemoAccountSetup.RefusalMessage(email));
     }
 
     int userId;

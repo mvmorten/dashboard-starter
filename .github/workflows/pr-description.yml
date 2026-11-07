@@ -1,6 +1,11 @@
-# Fails while a pull request's description still says TODO. The description becomes the
-# squash commit message and the source for the blog post, so it has to be finished before
-# merging (step 5 merged with its Checks and Build log still saying TODO).
+# Fails while a pull request's description still says TODO, or still has an unchecked box
+# ("- [ ]"). The description becomes the squash commit message and the source for the blog
+# post, so it has to be finished before merging (step 5 merged with its Checks and Build log
+# still saying TODO). Anything still to do is written as a checkbox, so this check can see it:
+# in step 6, "gets checked before this is marked ready" was a sentence, and nothing caught it.
+#
+# Checkboxes inside a fenced code block (``` or ~~~) or a quote (> - [ ]) don't count: those
+# are pasted logs or examples, not work left to do.
 #
 # The body is passed in through an environment variable, never written into the script with
 # ${{ }}: the shell would run any $(...) or backticks someone put in the description.
@@ -27,3 +32,20 @@ jobs:
             exit 1
           fi
           echo "No TODO in the PR description."
+
+      - name: Look for unchecked boxes in the description
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # A list item "- [ ]", "* [ ]" or "+ [ ]", indented or not, outside fenced code blocks.
+          # Lines starting with ">" (quotes) never match, since only spaces may come first.
+          unchecked=$(printf '%s\n' "$PR_BODY" | tr -d '\r' | awk '
+            /^ *(```|~~~)/ { fenced = !fenced; next }
+            !fenced && /^ *[-*+] \[ \]/ { print NR ": " $0 }
+          ')
+          if [ -n "$unchecked" ]; then
+            echo "The PR description still has unchecked boxes. Do them (and check them off) before merging:"
+            printf '%s\n' "$unchecked"
+            exit 1
+          fi
+          echo "No unchecked boxes in the PR description."

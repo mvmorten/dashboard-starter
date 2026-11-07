@@ -55,7 +55,7 @@ internal static class SetPasswordCommand
 
     if (user.IsDemo)
     {
-      throw new RunnerException($"{email} is the demo account. Its password comes from DEMO_PASSWORD; use the demo command.");
+      throw new RunnerException(DemoAccountSetup.RefusalMessage(email));
     }
 
     return user;
