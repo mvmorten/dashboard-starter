@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -208,8 +209,15 @@ public sealed class UserStore
   }
 
   /// <summary>
-  /// What the session check compares the cookie against. Null if the user no longer exists.
+  /// What the session check compares the cookie against, and what the user may do in the
+  /// current tenant. Null if the user no longer exists.
   /// </summary>
+  /// <remarks>
+  /// Permissions are read here, with the membership, rather than kept in the cookie: a cookie
+  /// would hold on to old permissions until it expired. Read here, a changed role or a disabled
+  /// membership takes effect at the next check (SessionCheckSeconds at most, at once on this
+  /// instance when the Members page made the change).
+  /// </remarks>
   public async Task<SessionState?> GetSessionStateAsync(int userId, int? tenantId, CancellationToken cancellationToken)
   {
     const string sql = """
@@ -226,16 +234,77 @@ public sealed class UserStore
               AND tu.Status = 'Active'
           ) THEN 1
           ELSE 0
-        END AS bit) AS IsTenantMember
+        END AS bit) AS IsTenantMember,
+        (
+          SELECT STRING_AGG(rp.Permission, ',')
+          FROM dbo.TenantUsers AS tu
+          INNER JOIN dbo.RolePermissions AS rp ON rp.RoleId = tu.RoleId
+          WHERE tu.UserId = u.Id
+            AND tu.TenantId = @TenantId
+            AND tu.Status = 'Active'
+        ) AS Permissions
       FROM dbo.Users AS u
       WHERE u.Id = @UserId;
       """;
 
     await using SqlConnection connection = await _connectionFactory.OpenAsync(cancellationToken);
-    return await connection.QuerySingleOrDefaultAsync<SessionState>(
+    SessionStateRow? row = await connection.QuerySingleOrDefaultAsync<SessionStateRow>(
       new CommandDefinition(sql, new { UserId = userId, TenantId = tenantId }, cancellationToken: cancellationToken));
+    if (row is null)
+    {
+      return null;
+    }
+
+    return new SessionState(row.SecurityStamp, row.IsLockedOut, row.IsTenantMember, ParsePermissions(row.Permissions));
+  }
+
+  /// <summary>The user's role in a tenant and its permissions, for /api/auth/me. Null role: not an active member.</summary>
+  public async Task<TenantRole> GetTenantRoleAsync(int userId, int? tenantId, CancellationToken cancellationToken)
+  {
+    if (tenantId is null)
+    {
+      return new TenantRole(null, ParsePermissions(null));
+    }
+
+    const string sql = """
+      SELECT
+        r.Name AS RoleName,
+        (
+          SELECT STRING_AGG(rp.Permission, ',')
+          FROM dbo.RolePermissions AS rp
+          WHERE rp.RoleId = tu.RoleId
+        ) AS Permissions
+      FROM dbo.TenantUsers AS tu
+      INNER JOIN dbo.Roles AS r ON r.Id = tu.RoleId
+      WHERE tu.UserId = @UserId
+        AND tu.TenantId = @TenantId
+        AND tu.Status = 'Active';
+      """;
+
+    await using SqlConnection connection = await _connectionFactory.OpenAsync(cancellationToken);
+    TenantRoleRow? row = await connection.QuerySingleOrDefaultAsync<TenantRoleRow>(
+      new CommandDefinition(sql, new { UserId = userId, TenantId = tenantId }, cancellationToken: cancellationToken));
+    return row is null
+      ? new TenantRole(null, ParsePermissions(null))
+      : new TenantRole(row.RoleName, ParsePermissions(row.Permissions));
+  }
+
+  // STRING_AGG gives "members.manage,members.view", or NULL for none.
+  private static IReadOnlySet<string> ParsePermissions(string? permissions)
+  {
+    if (string.IsNullOrEmpty(permissions))
+    {
+      return new HashSet<string>(StringComparer.Ordinal);
+    }
+
+    return new HashSet<string>(permissions.Split(','), StringComparer.Ordinal);
   }
 }
+
+// What the queries above return, before the permissions string is split.
+internal sealed record SessionStateRow(byte[] SecurityStamp, bool IsLockedOut, bool IsTenantMember, string? Permissions);
+
+internal sealed record TenantRoleRow(string RoleName, string? Permissions);
 
 public sealed record PasswordChangeCandidate(int Id, string Email, string? PasswordHash, bool IsDemo);
 
@@ -243,4 +312,8 @@ public sealed record SignInCandidate(int Id, string? PasswordHash, byte[] Securi
 
 public sealed record UserSummary(int Id, string Email, string DisplayName, bool IsDemo);
 
-public sealed record SessionState(byte[] SecurityStamp, bool IsLockedOut, bool IsTenantMember);
+/// <param name="Permissions">What the user may do in the session's tenant (Permissions.cs). Empty without a tenant or an active membership.</param>
+public sealed record SessionState(byte[] SecurityStamp, bool IsLockedOut, bool IsTenantMember, IReadOnlySet<string> Permissions);
+
+/// <param name="RoleName">The role's name, for display only. Never compare it in code; check a permission.</param>
+public sealed record TenantRole(string? RoleName, IReadOnlySet<string> Permissions);

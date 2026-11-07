@@ -6,6 +6,8 @@ using DashboardStarter.Api.Auth;
 using DashboardStarter.Api.Database;
 using DashboardStarter.Api.Email;
 using DashboardStarter.Api.Hosting;
+using DashboardStarter.Api.Members;
+using DashboardStarter.Db.Authorization;
 using DashboardStarter.Db.Passwords;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -155,6 +157,7 @@ public static class Program
     builder.Services.AddSingleton<UnknownUserHash>();
     builder.Services.AddSingleton<UserStore>();
     builder.Services.AddSingleton<PasswordResetStore>();
+    builder.Services.AddSingleton<MemberStore>();
 
     IConfigurationSection resetSection = builder.Configuration.GetSection(PasswordResetOptions.SectionName);
     PasswordResetOptions resetOptions = resetSection.Get<PasswordResetOptions>() ?? new PasswordResetOptions();
@@ -187,7 +190,17 @@ public static class Program
       // Everything needs a signed-in user unless it opts out with [AllowAnonymous]. Forgetting
       // an attribute then fails closed (a 401), not open.
       options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+
+      // One policy per permission, named after it: [Authorize(Policy = Permissions.MembersManage)].
+      // Signed out is a 401; signed in without the permission is a 403 (PermissionHandler).
+      foreach (string permission in Permissions.All.Keys)
+      {
+        options.AddPolicy(permission, policy => policy
+          .RequireAuthenticatedUser()
+          .AddRequirements(new PermissionRequirement(permission)));
+      }
     });
+    builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 
     builder.Services.AddAntiforgery(options =>
     {

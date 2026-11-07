@@ -4,6 +4,7 @@ import ChangePassword from "./pages/ChangePassword";
 import Dashboard from "./pages/Dashboard";
 import ForgotPassword from "./pages/ForgotPassword";
 import Health from "./pages/Health";
+import Members from "./pages/Members";
 import NotFound from "./pages/NotFound";
 import ResetPassword from "./pages/ResetPassword";
 import SignIn from "./pages/SignIn";
@@ -19,6 +20,7 @@ export default function App() {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<RequireSignIn />}>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/members" element={<Members />} />
         <Route path="/health" element={<Health />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="*" element={<NotFound />} />

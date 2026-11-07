@@ -56,6 +56,7 @@ export default function UserMenu() {
         <div className="user-identity">
           <p className="user-name">{me.user.displayName}</p>
           <p className="user-email">{me.user.email}</p>
+          {me.role && <p className="user-email">{me.role} in this tenant</p>}
         </div>
         <ul>
           <li>

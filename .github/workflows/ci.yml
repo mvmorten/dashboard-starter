@@ -82,19 +82,25 @@ jobs:
           db="dotnet run --no-build --configuration Release --project src/Db --"
           sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -s | -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
           query="SET NOCOUNT ON;
-            SELECT u.Id, u.Email, u.DisplayName, u.IsDemo, t.Name, tu.Status
-            FROM dbo.Users AS u
-            INNER JOIN dbo.TenantUsers AS tu ON tu.UserId = u.Id
+            SELECT u.Id, u.Email, u.DisplayName, u.IsDemo, t.Name, tu.Status, r.Name
+            FROM dbo.TenantUsers AS tu
+            INNER JOIN dbo.Users AS u ON u.Id = tu.UserId
             INNER JOIN dbo.Tenants AS t ON t.Id = tu.TenantId
-            WHERE u.Email = 'guest@example.com'
-            ORDER BY t.Name;"
+            INNER JOIN dbo.Roles AS r ON r.Id = tu.RoleId
+            WHERE t.Name IN ('Demo', 'Other Demo')
+            ORDER BY t.Name, u.Email;"
 
           $db seed
           $sqlcmd -Q "$query" > demo-account.txt
           cat demo-account.txt
-          grep -q '|guest@example.com|Demo Guest|1|Demo|Active$' demo-account.txt
-          grep -q '|guest@example.com|Demo Guest|1|Other Demo|Active$' demo-account.txt
-          [ "$(wc -l < demo-account.txt)" -eq 2 ]
+          # The demo account: Admin in Demo, Read-only in Other Demo. Plus six sample memberships
+          # (four people, one of them disabled) for the Members page.
+          grep -q '|guest@example.com|Demo Guest|1|Demo|Active|Admin$' demo-account.txt
+          grep -q '|guest@example.com|Demo Guest|1|Other Demo|Active|Read-only$' demo-account.txt
+          grep -q '|jordan.blake@example.com|Jordan Blake|1|Demo|Disabled|Member$' demo-account.txt
+          [ "$(wc -l < demo-account.txt)" -eq 8 ]
+          # The sample members can't sign in: no password.
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Users WHERE IsDemo = 1 AND Email LIKE '%.%@example.com' AND PasswordHash IS NULL;")" = 4 ]
 
           output=$($db seed)
           echo "$output"
@@ -117,10 +123,19 @@ jobs:
       - name: Create users
         run: |
           db="dotnet run --no-build --configuration Release --project src/Db --"
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
           echo 'a-long-enough-password' | $db create-user --email ann@example.com --name "Ann Example" --tenant "Acme Corporation" --password-stdin
           echo 'a-long-enough-password' | $db create-user --email ann@example.com --name "Ann Example" --tenant "Globex Industries" --password-stdin
           echo 'a-long-enough-password' | $db create-user --email locked@example.com --name "Locked Out" --tenant "Acme Corporation" --password-stdin
           echo 'a-long-enough-password' | PasswordHashing__Iterations=1 $db create-user --email weak@example.com --name "Weak Hash" --password-stdin
+
+          # For the role checks (role-checks.sh). create-user without --role gives the default
+          # role, Member.
+          echo 'a-long-enough-password' | $db create-user --email boss@example.com --name "Boss Example" --tenant "Acme Corporation" --role Admin --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email boss2@example.com --name "Boss Two" --tenant "Acme Corporation" --role Admin --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email mem@example.com --name "Mem Example" --tenant "Acme Corporation" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email mem@example.com --name "Mem Example" --tenant "Globex Industries" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email ro@example.com --name "Ro Example" --tenant "Acme Corporation" --role read-only --password-stdin
 
           # For the password reset checks (password-checks.sh).
           echo 'a-long-enough-password' | $db create-user --email reset@example.com --name "Reset Example" --tenant "Acme Corporation" --password-stdin
@@ -144,6 +159,24 @@ jobs:
           fi
           echo 'twelve-chars' | $db create-user --email rules@example.com --name Rules --password-stdin
 
+          # Roles from the Db runner: the default, --role needing --tenant, unknown roles, and
+          # the demo account (its roles are defined in DemoAccountSetup).
+          $sqlcmd -Q "SET NOCOUNT ON; SELECT r.Name FROM dbo.TenantUsers AS tu JOIN dbo.Users AS u ON u.Id = tu.UserId JOIN dbo.Roles AS r ON r.Id = tu.RoleId JOIN dbo.Tenants AS t ON t.Id = tu.TenantId WHERE u.Email = 'mem@example.com' AND t.Name = 'Globex Industries';" | grep -qx 'Member'
+          $sqlcmd -Q "SET NOCOUNT ON; SELECT r.Name FROM dbo.TenantUsers AS tu JOIN dbo.Users AS u ON u.Id = tu.UserId JOIN dbo.Roles AS r ON r.Id = tu.RoleId WHERE u.Email = 'ro@example.com';" | grep -qx 'Read-only'
+          if echo 'a-long-enough-password' | $db create-user --email norole@example.com --name "No Role" --role Admin --password-stdin; then
+            echo "create-user accepted --role without --tenant."
+            exit 1
+          fi
+          if $db set-role --email mem@example.com --tenant "Acme Corporation" --role Owner 2> unknown-role.txt; then
+            echo "set-role accepted a role that doesn't exist."
+            exit 1
+          fi
+          grep -q "The roles are: Admin, Member, Read-only" unknown-role.txt
+          if $db set-role --email guest@example.com --tenant Demo --role Member; then
+            echo "set-role changed the demo account's role."
+            exit 1
+          fi
+
           # A password on the command line is refused outright.
           if $db set-password --email ann@example.com --password oops; then
             echo "set-password accepted a password argument."
@@ -151,7 +184,6 @@ jobs:
           fi
 
           # Stored as a PHC string with the configured settings.
-          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
           $sqlcmd -Q "SET NOCOUNT ON; SELECT PasswordHash FROM dbo.Users WHERE Email = 'ann@example.com';" | grep -q '^\$argon2id\$v=19\$m=19456,t=2,p=1\$'
           $sqlcmd -Q "SET NOCOUNT ON; SELECT PasswordHash FROM dbo.Users WHERE Email = 'weak@example.com';" | grep -q '^\$argon2id\$v=19\$m=19456,t=1,p=1\$'
 
@@ -162,11 +194,10 @@ jobs:
           dotnet run --no-build --configuration Release --project src/Db -- demo
           output=$(dotnet run --no-build --configuration Release --project src/Db -- demo)
           echo "$output"
-          echo "$output" | grep -q "exists   tenant Demo"
           echo "$output" | grep -q "exists   user guest@example.com"
           echo "$output" | grep -q "unchanged password"
 
-          # The same account seed made: same row, flag, name, tenants, and memberships.
+          # The same account seed made: same row, flag, name, tenants, memberships, and roles.
           # (Only the password differs: DEMO_PASSWORD here, the local one from seed.)
           sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -s | -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
           $sqlcmd -Q "$(cat demo-account.sql)" | diff demo-account.txt -
@@ -246,6 +277,40 @@ jobs:
           done
           bash .github/scripts/password-checks.sh expiry || { cat api-expiry.log; exit 1; }
           kill $pid
+
+      # Roles and permissions: 401 and 403, each role's permissions, changes taking effect for a
+      # signed-in user, the self and last-admin rules (with two admins demoting each other at
+      # once), disabling one tenant only, and the demo account. Its own API instance, so its
+      # sign-ins don't count toward the rate limit the sign-in checks use up.
+      - name: Role checks
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          Auth__SessionCheckSeconds: "2"
+          BASE: http://localhost:5083
+          DB: dotnet run --no-build --configuration Release --project src/Db --
+          DEMO_PASSWORD: published-demo-pass
+        run: |
+          dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5083 > api-roles.log 2>&1 &
+          pid=$!
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:5083/api/health -o /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          bash .github/scripts/role-checks.sh || { cat api-roles.log; exit 1; }
+          kill $pid
+
+      # Every permission the database grants is one the code knows (src/Db/Authorization/Permissions.cs),
+      # and every permission in the code is granted to some role. A typo in either place fails here.
+      - name: Permissions in the database match the code
+        run: |
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
+          $sqlcmd -Q "SET NOCOUNT ON; SELECT DISTINCT Permission FROM dbo.RolePermissions " | LC_ALL=C sort > db-permissions.txt
+          grep -o 'public const string [A-Za-z]* = "[a-z.]*"' src/Db/Authorization/Permissions.cs | sed 's/.*"\(.*\)"/\1/' | LC_ALL=C sort > code-permissions.txt
+          echo "Database:"; cat db-permissions.txt
+          echo "Code:"; cat code-permissions.txt
+          diff code-permissions.txt db-permissions.txt
 
       # Sign in and out, wrong passwords, lockout, the demo account, antiforgery, switching
       # tenants, SESSION_CONTEXT, set-password ending a session, and the rate limit.

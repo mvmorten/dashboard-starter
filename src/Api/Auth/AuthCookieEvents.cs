@@ -39,7 +39,8 @@ public sealed class AuthCookieEvents : CookieAuthenticationEvents
   /// Runs on every request that carries a valid auth cookie. The cookie proves who signed in,
   /// but not that they still should be: a password change, a lockout, or a removed tenant
   /// membership must end the session. The database is asked at most once per
-  /// <see cref="AuthOptions.SessionCheckSeconds"/> per user and tenant.
+  /// <see cref="AuthOptions.SessionCheckSeconds"/> per user and tenant, and the same read
+  /// brings the user's permissions in that tenant.
   /// </summary>
   public override async Task ValidatePrincipal(CookieValidatePrincipalContext context)
   {
@@ -76,7 +77,11 @@ public sealed class AuthCookieEvents : CookieAuthenticationEvents
     if (reason is not null)
     {
       await EndSessionAsync(context, userId, reason);
+      return;
     }
+
+    // What this user may do in this tenant, for PermissionHandler later in the request.
+    SessionPermissions.Set(context.HttpContext, state!.Permissions);
   }
 
   // Never redirect: an API answers with a status code and a ProblemDetails body.
@@ -87,7 +92,12 @@ public sealed class AuthCookieEvents : CookieAuthenticationEvents
 
   public override Task RedirectToAccessDenied(RedirectContext<CookieAuthenticationOptions> context)
   {
-    return ProblemResponses.WriteAsync(context.HttpContext, StatusCodes.Status403Forbidden, "Not allowed");
+    // Signed in, but without the permission this endpoint needs (PermissionHandler).
+    return ProblemResponses.WriteAsync(
+      context.HttpContext,
+      StatusCodes.Status403Forbidden,
+      "You don't have access to this",
+      "Your role in this tenant doesn't include it. Ask one of the tenant's admins.");
   }
 
   public override Task RedirectToLogout(RedirectContext<CookieAuthenticationOptions> context)

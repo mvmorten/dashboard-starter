@@ -138,15 +138,21 @@ internal static class UserAccounts
     return await connection.QuerySingleAsync<(int Id, bool Created)>(sql, new { Name = name }, transaction);
   }
 
-  /// <summary>Adds the membership, or turns a disabled one back on. Returns what it did.</summary>
-  public static async Task<string> EnsureMembershipAsync(SqlConnection connection, SqlTransaction transaction, int tenantId, int userId)
+  /// <summary>
+  /// Adds the membership with the given role (or the default role, Member, when null), or turns
+  /// a disabled one back on. An existing membership keeps its role: changing it goes through
+  /// <see cref="Memberships.SetRoleAsync"/>, which protects the tenant's last admin.
+  /// Returns what it did.
+  /// </summary>
+  public static async Task<string> EnsureMembershipAsync(SqlConnection connection, SqlTransaction transaction, int tenantId, int userId, int? roleId)
   {
     const string sql = """
       DECLARE @status varchar(20) = (SELECT Status FROM dbo.TenantUsers WHERE TenantId = @TenantId AND UserId = @UserId);
 
       IF @status IS NULL
       BEGIN
-        INSERT INTO dbo.TenantUsers (TenantId, UserId, Status) VALUES (@TenantId, @UserId, 'Active');
+        INSERT INTO dbo.TenantUsers (TenantId, UserId, Status, RoleId)
+        VALUES (@TenantId, @UserId, 'Active', COALESCE(@RoleId, (SELECT Id FROM dbo.Roles WHERE IsDefault = 1)));
         SELECT 'added';
       END
       ELSE IF @status <> 'Active'
@@ -162,7 +168,57 @@ internal static class UserAccounts
       END
       """;
 
-    return await connection.ExecuteScalarAsync<string>(sql, new { TenantId = tenantId, UserId = userId }, transaction) ?? "exists";
+    return await connection.ExecuteScalarAsync<string>(
+      sql, new { TenantId = tenantId, UserId = userId, RoleId = roleId }, transaction) ?? "exists";
+  }
+
+  /// <summary>
+  /// Makes the membership exactly this: added if missing, with this role and status. For the demo
+  /// accounts only, whose memberships are a fixed definition (DemoAccountSetup), not something
+  /// people change. Returns what it did.
+  /// </summary>
+  public static async Task<string> SetDefinedMembershipAsync(
+    SqlConnection connection, SqlTransaction transaction, int tenantId, int userId, int roleId, string status)
+  {
+    const string sql = """
+      IF NOT EXISTS (SELECT 1 FROM dbo.TenantUsers WHERE TenantId = @TenantId AND UserId = @UserId)
+      BEGIN
+        INSERT INTO dbo.TenantUsers (TenantId, UserId, Status, RoleId) VALUES (@TenantId, @UserId, @Status, @RoleId);
+        SELECT 'added';
+      END
+      ELSE
+      BEGIN
+        UPDATE dbo.TenantUsers
+        SET RoleId = @RoleId, Status = @Status, UpdatedAt = SYSUTCDATETIME()
+        WHERE TenantId = @TenantId
+          AND UserId = @UserId
+          AND (RoleId <> @RoleId OR Status <> @Status);
+        SELECT CASE WHEN @@ROWCOUNT = 1 THEN 'updated' ELSE 'exists' END;
+      END
+      """;
+
+    return await connection.ExecuteScalarAsync<string>(
+      sql, new { TenantId = tenantId, UserId = userId, RoleId = roleId, Status = status }, transaction) ?? "exists";
+  }
+
+  /// <summary>Finds a role by name ("Admin", "Read-only"; any capitalization).</summary>
+  public static async Task<RoleRow> FindRoleAsync(SqlConnection connection, SqlTransaction transaction, string name)
+  {
+    const string sql = """
+      SELECT Id, Name
+      FROM dbo.Roles
+      WHERE Name = @Name;
+      """;
+
+    RoleRow? role = await connection.QuerySingleOrDefaultAsync<RoleRow>(sql, new { Name = name.Trim() }, transaction);
+    if (role is not null)
+    {
+      return role;
+    }
+
+    const string namesSql = "SELECT Name FROM dbo.Roles ORDER BY Id;";
+    IEnumerable<string> names = await connection.QueryAsync<string>(namesSql, transaction: transaction);
+    throw new RunnerException($"No role named '{name}'. The roles are: {string.Join(", ", names)}.");
   }
 
   public static string NormalizeEmail(string email)
@@ -192,3 +248,5 @@ internal static class UserAccounts
 internal sealed record UserRow(int Id, string Email, bool IsDemo, string? PasswordHash);
 
 internal sealed record TenantRow(int Id, string Name);
+
+internal sealed record RoleRow(int Id, string Name);

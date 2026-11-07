@@ -55,6 +55,16 @@ export function HealthIcon() {
   );
 }
 
+export function MembersIcon() {
+  return (
+    <Icon>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0113 0" />
+      <path d="M16 4.5a3.5 3.5 0 010 7M18 14.5a6.5 6.5 0 013.5 5.5" />
+    </Icon>
+  );
+}
+
 export function ChevronDownIcon() {
   return (
     <Icon>

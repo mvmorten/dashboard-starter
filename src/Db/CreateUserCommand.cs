@@ -8,18 +8,29 @@ using Microsoft.Data.SqlClient;
 namespace DashboardStarter.Db;
 
 /// <summary>
-/// <c>create-user --email &lt;email&gt; --name &lt;name&gt; [--tenant &lt;id or name&gt;] [--password-stdin]</c>:
+/// <c>create-user --email &lt;email&gt; --name &lt;name&gt; [--tenant &lt;id or name&gt; [--role &lt;role&gt;]] [--password-stdin]</c>:
 /// creates a user (or updates the name of an existing one), optionally adds them to a tenant,
 /// and sets their password. Until there's an invite flow, this is how accounts are made.
 /// </summary>
+/// <remarks>
+/// A new membership gets --role, or the default role (Member) without it. For an existing
+/// membership, --role changes the role, with the same last-admin rule as set-role; without it
+/// the role stays as it is.
+/// </remarks>
 internal static class CreateUserCommand
 {
   public static async Task<int> RunAsync(RunnerSettings settings, string[] args)
   {
-    CommandArguments arguments = CommandArguments.Parse(args, ["email", "name", "tenant"], ["password-stdin"]);
+    CommandArguments arguments = CommandArguments.Parse(args, ["email", "name", "tenant", "role"], ["password-stdin"]);
     string email = UserAccounts.NormalizeEmail(arguments.GetRequired("email"));
     string name = UserAccounts.NormalizeName(arguments.GetRequired("name"));
     string? tenant = arguments.Get("tenant");
+    string? roleName = arguments.Get("role");
+    if (roleName is not null && tenant is null)
+    {
+      throw new RunnerException("--role is a role in a tenant, so it needs --tenant too.");
+    }
+
     IPasswordHasher hasher = settings.CreatePasswordHasher();
 
     SchemaGuard.WriteHeader($"User {email}", settings);
@@ -35,6 +46,7 @@ internal static class CreateUserCommand
     await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync();
 
     TenantRow? tenantRow = tenant is null ? null : await UserAccounts.FindTenantAsync(connection, transaction, tenant.Trim());
+    RoleRow? role = roleName is null ? null : await UserAccounts.FindRoleAsync(connection, transaction, roleName);
 
     UserRow? existing = await UserAccounts.FindByEmailAsync(connection, transaction, email);
     if (existing is { IsDemo: true })
@@ -60,8 +72,13 @@ internal static class CreateUserCommand
 
     if (tenantRow is not null)
     {
-      string membership = await UserAccounts.EnsureMembershipAsync(connection, transaction, tenantRow.Id, userId);
+      string membership = await UserAccounts.EnsureMembershipAsync(connection, transaction, tenantRow.Id, userId, role?.Id);
       ScriptExecutor.PrintResult(membership, "member of " + tenantRow.Name, "tenant id " + tenantRow.Id);
+
+      if (role is not null && membership != "added")
+      {
+        await SetRoleCommand.ChangeRoleAsync(connection, transaction, tenantRow, userId, role);
+      }
     }
 
     await transaction.CommitAsync();

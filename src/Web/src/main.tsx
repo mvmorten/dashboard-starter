@@ -10,6 +10,7 @@ import "./styles/base.css";
 import "./styles/shell.css";
 import "./styles/pages.css";
 import "./styles/sign-in.css";
+import "./styles/members.css";
 
 const root = document.getElementById("root");
 if (!root) {

@@ -18,9 +18,21 @@ public sealed record SwitchTenantRequest(int TenantId);
 
 /// <summary>
 /// GET /api/auth/me, and the answer to sign-in and switch-tenant: who is signed in, the
-/// tenants they can work in, and which one they're in now (null if they belong to none).
+/// tenants they can work in, which one they're in now (null if they belong to none), and
+/// their role and permissions there.
 /// </summary>
-public sealed record MeResponse(MeUser User, IReadOnlyList<TenantResponse> Tenants, int? CurrentTenantId);
+/// <param name="Role">The role's name in the current tenant, for display. The front end never compares it.</param>
+/// <param name="Permissions">
+/// What the user may do in the current tenant, sorted. The front end uses it to hide what
+/// they can't use (can() in src/Web/src/auth/permissions.ts); the API checks it again on
+/// every request.
+/// </param>
+public sealed record MeResponse(
+  MeUser User,
+  IReadOnlyList<TenantResponse> Tenants,
+  int? CurrentTenantId,
+  string? Role,
+  IReadOnlyList<string> Permissions);
 
 public sealed record MeUser(int Id, string Email, string DisplayName, bool IsDemo);
 
