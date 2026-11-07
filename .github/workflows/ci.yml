@@ -74,10 +74,42 @@ jobs:
           echo "$output"
           echo "$output" | grep -q "Migrations: 0 applied"
 
-      - name: Seed twice
+      # seed and the demo command make the demo account with the same code (DemoAccountSetup).
+      # demo-account.txt is what the account is: the user, its flag and name, and its memberships.
+      # The demo step below checks the demo command leaves exactly the same thing behind.
+      - name: Seed twice (the demo account comes out the same both times)
         run: |
-          dotnet run --no-build --configuration Release --project src/Db -- seed
-          dotnet run --no-build --configuration Release --project src/Db -- seed
+          db="dotnet run --no-build --configuration Release --project src/Db --"
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -s | -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
+          query="SET NOCOUNT ON;
+            SELECT u.Id, u.Email, u.DisplayName, u.IsDemo, t.Name, tu.Status
+            FROM dbo.Users AS u
+            INNER JOIN dbo.TenantUsers AS tu ON tu.UserId = u.Id
+            INNER JOIN dbo.Tenants AS t ON t.Id = tu.TenantId
+            WHERE u.Email = 'guest@example.com'
+            ORDER BY t.Name;"
+
+          $db seed
+          $sqlcmd -Q "$query" > demo-account.txt
+          cat demo-account.txt
+          grep -q '|guest@example.com|Demo Guest|1|Demo|Active$' demo-account.txt
+          grep -q '|guest@example.com|Demo Guest|1|Other Demo|Active$' demo-account.txt
+          [ "$(wc -l < demo-account.txt)" -eq 2 ]
+
+          output=$($db seed)
+          echo "$output"
+          echo "$output" | grep -q "unchanged password"
+          $sqlcmd -Q "$query" | diff demo-account.txt -
+          echo "$query" > demo-account.sql
+
+          # create-user and set-password refuse the demo account, with a message that fits
+          # both places it can come from.
+          if echo 'a-long-enough-password' | $db set-password --email guest@example.com --password-stdin 2> refused.txt; then
+            echo "set-password changed the demo account's password."
+            exit 1
+          fi
+          cat refused.txt
+          grep -q "only set by the demo command (from DEMO_PASSWORD) or, locally, by seed" refused.txt
 
       # Accounts for the sign-in checks below. Passwords go in on standard input, never as
       # arguments. weak@example.com is hashed with weaker settings on purpose, so signing in
@@ -123,7 +155,7 @@ jobs:
           $sqlcmd -Q "SET NOCOUNT ON; SELECT PasswordHash FROM dbo.Users WHERE Email = 'ann@example.com';" | grep -q '^\$argon2id\$v=19\$m=19456,t=2,p=1\$'
           $sqlcmd -Q "SET NOCOUNT ON; SELECT PasswordHash FROM dbo.Users WHERE Email = 'weak@example.com';" | grep -q '^\$argon2id\$v=19\$m=19456,t=1,p=1\$'
 
-      - name: Demo account (twice; the second run changes nothing)
+      - name: Demo account (twice; the second run changes nothing, and it matches seed's)
         env:
           DEMO_PASSWORD: published-demo-pass
         run: |
@@ -133,6 +165,12 @@ jobs:
           echo "$output" | grep -q "exists   tenant Demo"
           echo "$output" | grep -q "exists   user guest@example.com"
           echo "$output" | grep -q "unchanged password"
+
+          # The same account seed made: same row, flag, name, tenants, and memberships.
+          # (Only the password differs: DEMO_PASSWORD here, the local one from seed.)
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -s | -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
+          $sqlcmd -Q "$(cat demo-account.sql)" | diff demo-account.txt -
+          echo "The demo command and seed made the same demo account."
 
       # The API connects with its own login, which can read and write data but not change
       # the schema (sql/migrations/0005_app_runtime_role.sql). Prove both halves.
