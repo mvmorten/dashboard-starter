@@ -1,6 +1,7 @@
 import { NavLink } from "react-router";
+import { Permissions, useCan } from "../auth/permissions";
 import Logo from "./Logo";
-import { CloseIcon, DashboardIcon, HealthIcon } from "./icons";
+import { CloseIcon, DashboardIcon, HealthIcon, MembersIcon } from "./icons";
 
 interface SidebarProps {
   // Set when the sidebar is shown in the phone drawer: adds a close button and is also
@@ -9,6 +10,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onClose }: SidebarProps) {
+  const can = useCan();
+
   return (
     <>
       <div className="sidebar-head">
@@ -36,6 +39,15 @@ export default function Sidebar({ onClose }: SidebarProps) {
               Dashboard
             </NavLink>
           </li>
+          {/* Hidden without the permission; the page and the API check it too. */}
+          {can(Permissions.membersView) && (
+            <li>
+              <NavLink to="/members" className="nav-link" onClick={onClose}>
+                <MembersIcon />
+                Members
+              </NavLink>
+            </li>
+          )}
           <li>
             <NavLink to="/health" className="nav-link" onClick={onClose}>
               <HealthIcon />

@@ -4,7 +4,7 @@ An opinionated, open-source dashboard starter for building real business apps wi
 
 Clone it, rename it, and start on your actual product instead of rebuilding auth, layout, and plumbing for the tenth time.
 
-**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Sign in with the shared demo account: the sign-in page shows its email and password, and **Use demo account** fills them in. Everyone uses the same account, so don't put anything private in it. The account belongs to two tenants, "Demo" and "Other Demo": switch between them at the top, and the user menu at the top right signs you out. You land in the tenant the account used last, so with a shared account that may be whichever one the last visitor picked.
+**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Sign in with the shared demo account: the sign-in page shows its email and password, and **Use demo account** fills them in. Everyone uses the same account, so don't put anything private in it. The account belongs to two tenants, "Demo" and "Other Demo": switch between them at the top, and the user menu at the top right signs you out. You land in the tenant the account used last, so with a shared account that may be whichever one the last visitor picked. The account is an Admin in "Demo" and Read-only in "Other Demo", so the Members page shows the same person with different permissions in each. Because it's shared, it can look at an admin's controls but not use them.
 
 > **Status:** Just getting started. This project is being built in public, and every step is documented in a blog series. Expect the code to change quickly while the foundation takes shape.
 
@@ -42,13 +42,31 @@ This repo aims to be:
 
 - **One shared database, many tenants.** One schema, one migration run, one backup, one connection string. That's the economy of scale that makes SaaS work. See the FAQ for why not one database per tenant.
 - **One account, many tenants.** A person signs in once and can belong to several tenants. Nobody wants a separate account for every organization they work with.
-- **Global tables** have no `TenantId`: `Users`, `Tenants`, and `TenantUsers`. Your account, email (unique across the system), password hash, and lockout state belong to you, not to any one tenant.
+- **Global tables** have no `TenantId`: `Users`, `Tenants`, `TenantUsers`, and the role definitions (`Roles`, `RolePermissions`). Your account, email (unique across the system), password hash, and lockout state belong to you, not to any one tenant.
 - **Everything else is tenant-owned**: it carries a `TenantId`, the `TenantId` leads its indexes, and every query filters by the current tenant.
 - **Row-Level Security is the safety net.** The API puts the current tenant in `SESSION_CONTEXT` on each connection, and a security policy filters every tenant-owned table. A query that forgets its `WHERE TenantId = @TenantId` still can't see another tenant's rows.
-- **Roles are per tenant.** You can be an admin in one tenant and read-only in another (`TenantUserRoles`).
+- **Roles are per tenant.** You can be an admin in one tenant and read-only in another: each membership in `TenantUsers` has exactly one `RoleId`. See "Roles and permissions" below.
 - **Switching tenants.** With one tenant you go straight in. With several, you land in the one you used last and can switch from the top bar. The auth cookie holds your user and current tenant; switching checks your membership and issues a new cookie.
 - **Removing access works right away.** Memberships can be disabled per tenant, and the API rechecks membership on each request, cached for at most a minute (`Auth:SessionCheckSeconds`). The same check ends every session of a user whose password changed or who is locked out.
 - The development seed creates the same demo account as the live demo, in its two tenants ("Demo" and "Other Demo"), plus two sample tenants for your own test users. A real deployment starts empty: create your first tenant, and if your app only ever needs one, you can ignore the rest.
+
+## Roles and permissions
+
+- **Code checks permissions, never role names.** A permission is an area and an action: `members.view`, `members.manage`. They're all listed in one file, [`src/Db/Authorization/Permissions.cs`](src/Db/Authorization/Permissions.cs), each with a line saying what it allows.
+- **A role is a named set of permissions**, defined in the database by a migration (`sql/migrations/0009_roles.sql`) and the same in every tenant. There's no screen for editing roles: they're part of the app's design, like its tables.
+
+  | Role | Permissions |
+  | --- | --- |
+  | Admin | `members.view`, `members.manage` |
+  | Member | `members.view` |
+  | Read-only | `members.view` |
+
+  Member and Read-only are the same until there's data to change. The CRUD module adds its own permissions (an `edit` for its records) and grants them to Admin and Member only.
+- **One role per membership.** It's a `RoleId` column on `TenantUsers` rather than a separate table, so "exactly one role in each tenant" is kept by the schema itself. New memberships get Member unless you say otherwise.
+- **The API checks every request.** Controllers say `[Authorize(Policy = Permissions.MembersManage)]`, and one small handler we own (`src/Api/Auth/PermissionHandler.cs`) answers it. The permissions come from the database with the per-request session check (cached for at most `Auth:SessionCheckSeconds`), never from the cookie, so a changed role or a disabled membership takes effect within a minute, and usually on the very next request when it's changed on the Members page. Not signed in is a 401; signed in without the permission is a 403.
+- **The UI only hides things.** `/api/auth/me` returns your permissions in the current tenant, and one helper, `can(permission)` (`src/Web/src/auth/permissions.ts`), hides menu items and buttons you can't use. That's a convenience; the API is the check.
+- **Every tenant keeps an admin.** You can't change your own role or disable yourself, and no change may leave a tenant without an active member who can manage members. The rule is in one place (`src/Db/Users/Memberships.cs`), used by the API and the Db runner, and runs in one transaction with the change, under a lock on the tenant, so two admins demoting each other at once can't both succeed.
+- **Adding a permission in a fork:** add a constant to `Permissions.cs` (and to the front end's copy in `permissions.ts` if the UI needs it), write a migration that grants it to the roles that should have it, and put `[Authorize(Policy = ...)]` on the endpoints. CI fails if the code and the database don't list the same permissions.
 
 ## Database conventions
 
@@ -147,7 +165,7 @@ The goal is the 80% every dashboard app needs on day one:
 - [x] Authentication: sign in and sign out, lockout, a shared demo account
 - [x] Password reset and change password
 - [ ] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
-- [ ] Users, roles, and permissions, enforced on both API and UI
+- [x] Users, roles, and permissions, enforced on both API and UI
 - [ ] A reusable data grid with server-side paging, sorting, and filtering
 - [ ] CRUD example module showing the end-to-end pattern, including edit conflicts
 - [ ] Forms with shared validation rules
@@ -218,7 +236,7 @@ What just happened:
 
 - **Docker** runs SQL Server 2025 only, on port 1433, with its data in a named volume (`sqlserver-data`) so it survives restarts.
 - **`migrate`** creates the `DashboardStarter` database if it's missing, runs any new scripts in `sql/migrations`, then reruns everything in `sql/programmable`. It prints `applied`, `skipped`, or `failed` for each file. Run it as often as you like; the second run skips everything.
-- **`seed`** runs the scripts in `sql/seed` (two sample tenants, Acme Corporation and Globex Industries, for accounts you make yourself), then creates the demo account, `guest@example.com`, in the "Demo" and "Other Demo" tenants with the password above. That's the same code the `demo` command runs on the live demo (`src/Db/Users/DemoAccountSetup.cs`), so the account is the same locally and deployed; only the password differs. It refuses to run outside Development. (Seeded before step 7? Your database still has the old `demo@example.com`. It's harmless; `docker compose down -v` starts over without it.)
+- **`seed`** runs the scripts in `sql/seed` (two sample tenants, Acme Corporation and Globex Industries, for accounts you make yourself), then creates the demo account, `guest@example.com`, with the password above: Admin in "Demo", Read-only in "Other Demo", alongside four sample members who can't sign in. That's the same code the `demo` command runs on the live demo (`src/Db/Users/DemoAccountSetup.cs`), so the account is the same locally and deployed; only the password differs. It refuses to run outside Development. (Seeded before step 7? Your database still has the old `demo@example.com`. It's harmless; `docker compose down -v` starts over without it.)
 - **The API** checks at startup that no migrations are pending. If one is, it refuses to start and tells you to run `migrate`. It never changes the schema itself.
 - **The front end** runs on the Vite dev server, which forwards `/api` to the API, so the browser only ever talks to one origin.
 
@@ -227,7 +245,10 @@ What just happened:
 ```
 dotnet run --project src/Db -- create-user --email ann@example.com --name "Ann Example" --tenant "Acme Corporation"
 dotnet run --project src/Db -- set-password --email ann@example.com     # also signs out her other sessions
+dotnet run --project src/Db -- set-role --email ann@example.com --tenant "Acme Corporation" --role Admin
 ```
+
+`create-user` makes the membership a Member unless you add `--role Admin` or `--role Read-only`. `set-role` changes it later; it's also how a fresh deployment gets its first admin, since nobody can use the Members page to promote themselves. Like the Members page, it refuses to leave a tenant with nobody who can manage members.
 
 A password is 12 to 128 characters and can't be the account's own email; there are no rules about digits or symbols, following current NIST guidance. The API and the Db runner check the same rules (`src/Db/Passwords/PasswordRules.cs`).
 
@@ -271,7 +292,7 @@ For the API you can use a user secret instead: `dotnet user-secrets set "Connect
 
 ```
 /sql                 schema scripts (see "Schema scripts" above)
-/src/Db              the Db runner: `migrate`, `seed`, `app-user`, and the account commands (`create-user`, `set-password`, `demo`)
+/src/Db              the Db runner: `migrate`, `seed`, `app-user`, and the account commands (`create-user`, `set-password`, `set-role`, `demo`)
 /src/Api             ASP.NET Core Web API (controllers)
 /src/Web             React + TypeScript front end (Vite)
 /infra              Bicep for the Azure resources (see docs/deploy-azure.md)

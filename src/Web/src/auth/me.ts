@@ -19,6 +19,10 @@ export interface Me {
   tenants: Tenant[];
   // The tenant this session works in. Null when the user belongs to none.
   currentTenantId: number | null;
+  // The user's role in the current tenant, for display only: check permissions, never this.
+  role: string | null;
+  // What the user may do in the current tenant (auth/permissions.ts).
+  permissions: string[];
 }
 
 export const meQueryKey = ["me"] as const;

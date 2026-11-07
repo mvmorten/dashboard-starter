@@ -212,10 +212,16 @@ public sealed class AuthController : ControllerBase
     // Only report a current tenant the user is still an active member of.
     int? currentTenantId = tenants.Any(tenant => tenant.Id == tenantId) ? tenantId : null;
 
+    // Read from the database, not from this request's session check: after sign-in or a
+    // tenant switch, that check ran for the old cookie.
+    TenantRole role = await _userStore.GetTenantRoleAsync(userId, currentTenantId, cancellationToken);
+
     return Ok(new MeResponse(
       new MeUser(user.Id, user.Email, user.DisplayName, user.IsDemo),
       tenants.OrderBy(tenant => tenant.Name).ToList(),
-      currentTenantId));
+      currentTenantId,
+      role.RoleName,
+      role.Permissions.Order(StringComparer.Ordinal).ToList()));
   }
 
   // Every action that calls this requires a signed-in user, whose cookie always has the claim.

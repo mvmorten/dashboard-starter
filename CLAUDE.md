@@ -72,7 +72,7 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 
 - **Keys:** `int IDENTITY` on every table; `bigint` only for tables that grow without limit (audit log, events). No public GUID columns.
 - **Tenant-owned tables** carry `TenantId`, lead their indexes with it, and are covered by the Row-Level Security policy.
-- **Global tables** (no `TenantId`, no RLS): `Users`, `Tenants`, `TenantUsers`. One user account can belong to many tenants; roles are per tenant.
+- **Global tables** (no `TenantId`, no RLS): `Users`, `Tenants`, `TenantUsers`, `Roles`, `RolePermissions`. One user account can belong to many tenants; roles are per tenant (`TenantUsers.RoleId`, one per membership).
 - **Standard columns** on tenant-owned tables: `TenantId`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, `UpdatedBy` (`datetime2`, UTC), `RowVersion rowversion`. Always write `rowversion`, never `timestamp`.
 - **Optimistic concurrency:** updates include `AND RowVersion = @RowVersion` and use `OUTPUT inserted.RowVersion`. Zero rows updated: 404 if the row is gone, otherwise 409 Conflict with the current version.
 - **Row-Level Security:** the API sets `SESSION_CONTEXT(N'TenantId')` on each connection; a security policy filters every tenant-owned table. App queries still filter by `TenantId` explicitly; RLS is the safety net, not the primary filter.
@@ -91,7 +91,7 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 - Every migration checks before it changes (`IF NOT EXISTS`, `IF COL_LENGTH(...) IS NULL`, `IF OBJECT_ID(...) IS NULL`).
 - To change something a migration already did, write a new migration.
 - Apply with `dotnet run --project src/Db -- migrate`; seed with `dotnet run --project src/Db -- seed`; create or update the API's login with `dotnet run --project src/Db -- app-user`.
-- Accounts: `create-user`, `set-password` (prompt or `--password-stdin`, never a password argument), and `demo` (the public demo account, from `DEMO_PASSWORD`).
+- Accounts: `create-user` (`--role`, default Member), `set-password` (prompt or `--password-stdin`, never a password argument), `set-role`, and `demo` (the public demo account, from `DEMO_PASSWORD`).
 - The demo account is defined once, in `src/Db/Users/DemoAccountSetup.cs`: `demo` and `seed` both call it, so locally and deployed it's the same account (`guest@example.com`, tenants "Demo" and "Other Demo"). Change the demo account there, never in a seed script.
 - The runner journals migrations in `SchemaVersions` (file name, content hash, applied at), skips applied ones, and fails if an applied migration's hash changed.
 - **The API never changes the schema.** At startup it only checks that no migrations are pending and refuses to start with a clear message naming the command to run.
@@ -113,6 +113,9 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 - Random values for anything security-related (tokens, salts, codes): `System.Security.Cryptography.RandomNumberGenerator` only. Store only a SHA-256 hash of tokens.
 - Cookies: `HttpOnly`, `Secure`, `SameSite`; antiforgery tokens on state-changing requests (one global filter, `Auth/AntiforgeryFilter.cs`). Deployed cookie names start with `__Host-`; Development drops the prefix and `Secure` follows the request, because the Vite proxy is plain http (`Auth/AuthCookies.cs`).
 - Every endpoint requires a signed-in user (fallback policy). Opt out only with an explicit `[AllowAnonymous]`.
+- **Authorization checks permissions, never role names.** Permissions are constants in `src/Db/Authorization/Permissions.cs` (area.action, one line each on what it allows); roles are sets of them, defined by migrations. Endpoints use `[Authorize(Policy = Permissions.X)]`; the front end uses `can(permission)` from `src/Web/src/auth/permissions.ts`, which only hides things. Role names appear only in role definitions (migrations, `DemoAccountSetup`) and test data.
+- Permissions are loaded with the session check (cached for `Auth:SessionCheckSeconds`), never stored in the cookie. A change to someone's role or membership clears their `SessionCache` entry.
+- Membership changes go through `src/Db/Users/Memberships.cs` (API and Db runner): it locks the tenant row and keeps the tenant's last active member with `members.manage`.
 - Links in emails are built from `CanonicalHost` (Development: the Vite dev server), never from the request's `Host` header. Reset tokens go in the URL fragment (`#token=`), never the query string, and never in a log, in Development too.
 - Password rules live in one place, `src/Db/Passwords/PasswordRules.cs` (12 to 128 characters, not the email, no composition rules), used by the API and the Db runner.
 - Sign-in failures all get one generic message, and unknown emails still run a hash, so nothing reveals which accounts exist.

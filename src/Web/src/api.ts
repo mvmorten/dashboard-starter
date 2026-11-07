@@ -67,22 +67,40 @@ export async function apiGet<T>(
 
 // POST with a JSON body. Sends the antiforgery token the API checks on every
 // state-changing request. Returns undefined for 204 No Content.
-export async function apiPost<T>(
+export function apiPost<T>(
   path: string,
   body?: unknown,
   options: RequestOptions = {},
+): Promise<T> {
+  return send<T>("POST", path, body, options);
+}
+
+// PUT with a JSON body: replaces one thing (a member's role). Same antiforgery handling as POST.
+export function apiPut<T>(
+  path: string,
+  body?: unknown,
+  options: RequestOptions = {},
+): Promise<T> {
+  return send<T>("PUT", path, body, options);
+}
+
+async function send<T>(
+  method: "POST" | "PUT",
+  path: string,
+  body: unknown,
+  options: RequestOptions,
 ): Promise<T> {
   if (readAntiforgeryToken() === null) {
     await refreshAntiforgeryToken();
   }
 
-  let response = await post(path, body, options.signal);
+  let response = await request(method, path, body, options.signal);
 
   // The token was issued for a session that has since changed (it ended on the server, or
   // another tab switched tenants). Get one for the current session and try once more.
   if (response.status === 400 && (await isAntiforgeryRejection(response))) {
     await refreshAntiforgeryToken();
-    response = await post(path, body, options.signal);
+    response = await request(method, path, body, options.signal);
   }
 
   await throwIfFailed(response, options);
@@ -98,7 +116,8 @@ export async function apiPost<T>(
 // browser send our cookies, but it can't read them, so it can't send the header.
 //
 // The token is tied to who is signed in and to their current tenant, so the app fetches a
-// new one after sign-in, sign-out, and switching tenants (auth/session.ts).
+// new one after sign-in, sign-out, and switching tenants (auth/session.ts). Every POST and
+// PUT copies it.
 const antiforgeryHeader = "X-XSRF-TOKEN";
 
 // Deployed, the cookie's name has the __Host- prefix; in local development it doesn't.
@@ -111,7 +130,8 @@ export async function refreshAntiforgeryToken(): Promise<void> {
   }
 }
 
-function post(
+function request(
+  method: "POST" | "PUT",
   path: string,
   body: unknown,
   signal: AbortSignal | undefined,
@@ -127,7 +147,7 @@ function post(
   }
 
   return fetch(path, {
-    method: "POST",
+    method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
