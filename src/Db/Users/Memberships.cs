@@ -50,7 +50,8 @@ public static class Memberships
       SET RoleId = @RoleId, UpdatedAt = SYSUTCDATETIME(), UpdatedBy = @ActorUserId
       OUTPUT inserted.RowVersion
       WHERE TenantId = @TenantId
-        AND UserId = @UserId;
+        AND UserId = @UserId
+        AND RowVersion = @CurrentRowVersion;
       """;
 
     return ChangeAsync(
@@ -80,7 +81,8 @@ public static class Memberships
       SET Status = @Status, UpdatedAt = SYSUTCDATETIME(), UpdatedBy = @ActorUserId
       OUTPUT inserted.RowVersion
       WHERE TenantId = @TenantId
-        AND UserId = @UserId;
+        AND UserId = @UserId
+        AND RowVersion = @CurrentRowVersion;
       """;
 
     return ChangeAsync(
@@ -149,7 +151,15 @@ public static class Memberships
     }
 
     bool couldManage = await CanManageAsync(connection, transaction, tenantId, userId);
-    byte[] newRowVersion = await connection.QuerySingleAsync<byte[]>(updateSql, updateParameters, transaction);
+    // The RowVersion goes in the UPDATE too (the usual optimistic concurrency pattern), so the
+    // change can't land on a row someone changed without taking the tenant lock.
+    DynamicParameters parameters = new(updateParameters);
+    parameters.Add("CurrentRowVersion", currentRowVersion);
+    byte[]? newRowVersion = await connection.QuerySingleOrDefaultAsync<byte[]?>(updateSql, parameters, transaction);
+    if (newRowVersion is null)
+    {
+      return new MembershipChange(MembershipChangeResult.Conflict, currentRowVersion);
+    }
 
     // Was this the last one? Counted after the change, inside the lock, so it's exact.
     if (couldManage && await CountManagersAsync(connection, transaction, tenantId) == 0)

@@ -70,6 +70,7 @@ public sealed class MembersController : ControllerBase
     return ChangeAsync(
       userId,
       "change your own role",
+      $"role {request.RoleId}",
       (connection, transaction, tenantId, actorId) => Memberships.SetRoleAsync(
         connection, transaction, tenantId, userId, request.RoleId, request.RowVersion, actorId),
       cancellationToken);
@@ -83,6 +84,7 @@ public sealed class MembersController : ControllerBase
     return ChangeAsync(
       userId,
       "disable yourself",
+      "status " + request.Status,
       (connection, transaction, tenantId, actorId) => Memberships.SetStatusAsync(
         connection, transaction, tenantId, userId, active, request.RowVersion, actorId),
       cancellationToken);
@@ -91,6 +93,7 @@ public sealed class MembersController : ControllerBase
   private async Task<ActionResult<MemberChangedResponse>> ChangeAsync(
     int userId,
     string selfChange,
+    string changeDescription,
     Func<SqlConnection, SqlTransaction, int, int, Task<MembershipChange>> change,
     CancellationToken cancellationToken)
   {
@@ -99,6 +102,7 @@ public sealed class MembersController : ControllerBase
 
     if (userId == actorId)
     {
+      _logger.LogInformation("Refused {Change} for user {ActorId}: it's their own membership.", changeDescription, actorId);
       return Problem(
         statusCode: StatusCodes.Status400BadRequest,
         title: "That's you",
@@ -109,6 +113,7 @@ public sealed class MembersController : ControllerBase
     UserSummary? actor = await _userStore.GetUserAsync(actorId, cancellationToken);
     if (actor is null || actor.IsDemo)
     {
+      _logger.LogInformation("Refused {Change} for user {MemberId} by the demo account {ActorId}.", changeDescription, userId, actorId);
       return Problem(
         statusCode: StatusCodes.Status403Forbidden,
         title: "The demo account can't change members",
@@ -118,6 +123,16 @@ public sealed class MembersController : ControllerBase
     await using SqlConnection connection = await _connectionFactory.OpenAsync(cancellationToken);
     await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
     MembershipChange result = await change(connection, transaction, tenantId, actorId);
+    if (result.Result != MembershipChangeResult.Changed)
+    {
+      _logger.LogInformation(
+        "Refused {Change} for user {MemberId} in tenant {TenantId} by user {ActorId}: {Result}.",
+        changeDescription,
+        userId,
+        tenantId,
+        actorId,
+        result.Result);
+    }
 
     switch (result.Result)
     {
@@ -144,10 +159,14 @@ public sealed class MembersController : ControllerBase
         throw new InvalidOperationException($"Unexpected membership change result {result.Result}.");
     }
 
-    // Their next request reads the new role or status, here at once (other instances within
-    // Auth:SessionCheckSeconds), like a password change.
+    // Their next request reads the new role or status, like after a password change. Within
+    // Auth:SessionCheckSeconds at most: other instances keep their entries until they expire,
+    // and a request of theirs already reading the old state can put it back for one window.
+    // What they can manage is checked again under the lock (Memberships), so that window
+    // never lets anyone change members.
     SessionCache.Forget(_cache, userId, [tenantId]);
-    _logger.LogInformation("User {ActorId} changed the membership of user {MemberId} in tenant {TenantId}.", actorId, userId, tenantId);
+    _logger.LogInformation(
+      "User {ActorId} set {Change} for user {MemberId} in tenant {TenantId}.", actorId, changeDescription, userId, tenantId);
 
     return Ok(new MemberChangedResponse(result.RowVersion!));
   }

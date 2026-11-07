@@ -215,7 +215,7 @@ public sealed class UserStore
   /// <remarks>
   /// Permissions are read here, with the membership, rather than kept in the cookie: a cookie
   /// would hold on to old permissions until it expired. Read here, a changed role or a disabled
-  /// membership takes effect at the next check (SessionCheckSeconds at most, at once on this
+  /// membership takes effect at the next check (SessionCheckSeconds at most, usually at once on this
   /// instance when the Members page made the change).
   /// </remarks>
   public async Task<SessionState?> GetSessionStateAsync(int userId, int? tenantId, CancellationToken cancellationToken)
