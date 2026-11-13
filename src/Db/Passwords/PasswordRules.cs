@@ -6,7 +6,7 @@ namespace DashboardStarter.Db.Passwords;
 /// What a new password must be, following current NIST guidance (SP 800-63B): a length range,
 /// and not the account's own email. No rules about digits or symbols, which mostly produce
 /// "Password1!". One place for the API (reset and change password) and the Db runner
-/// (create-user, set-password, demo), so the rules can't drift apart.
+/// (create-user, set-password), so the rules can't drift apart.
 /// </summary>
 public static class PasswordRules
 {

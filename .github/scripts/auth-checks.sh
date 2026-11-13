@@ -10,7 +10,6 @@
 #   ann@example.com      member of two tenants        a-long-enough-password
 #   locked@example.com   any tenant                   a-long-enough-password
 #   weak@example.com     hashed with Iterations=1     a-long-enough-password
-#   guest@example.com    the demo account             published-demo-pass
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
@@ -59,12 +58,7 @@ echo "8. Five wrong passwords lock the account; then even the right one is refus
 for attempt in 1 2 3 4 5; do expect "$(sign_in "$work/l" locked@example.com wrong-password-123)" 401; done
 expect "$(sign_in "$work/l" locked@example.com a-long-enough-password)" 401
 
-echo "9. The demo account is never locked out"
-for attempt in 1 2 3 4 5 6 7; do expect "$(sign_in "$work/d" guest@example.com wrong-password-123)" 401; done
-expect "$(sign_in "$work/d" guest@example.com published-demo-pass)" 200
-grep -q '"isDemo":true' "$body"
-
-echo "10. set-password ends a session that's already open (after the session check cache expires)"
+echo "9. set-password ends a session that's already open (after the session check cache expires)"
 expect "$(sign_in "$work/s" ann@example.com a-long-enough-password)" 200
 expect "$(status "$work/s" "$BASE/api/auth/me")" 200
 echo 'a-brand-new-password' | $DB set-password --email ann@example.com --password-stdin > /dev/null
@@ -72,12 +66,12 @@ sleep 3
 expect "$(status "$work/s" "$BASE/api/auth/me")" 401
 expect "$(sign_in "$work/s" ann@example.com a-brand-new-password)" 200
 
-echo "11. Signing in with a hash made with weaker settings works (ci.yml then checks it was rehashed)"
+echo "10. Signing in with a hash made with weaker settings works (ci.yml then checks it was rehashed)"
 expect "$(sign_in "$work/w" weak@example.com a-long-enough-password)" 200
 
 # Keep this one last: it uses up this address's sign-in limit, so any sign-in after it
 # gets 429 until the window (Auth:SignInWindowSeconds) passes.
-echo "12. Too many sign-in attempts from one address: 429 with Retry-After"
+echo "11. Too many sign-in attempts from one address: 429 with Retry-After"
 limited=no
 for attempt in $(seq 1 80); do
   code=$(curl -s -o /dev/null -D "$work/headers" -w '%{http_code}' -H 'Content-Type: application/json' \

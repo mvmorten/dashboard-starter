@@ -74,48 +74,36 @@ jobs:
           echo "$output"
           echo "$output" | grep -q "Migrations: 0 applied"
 
-      # seed and the demo command make the demo account with the same code (DemoAccountSetup).
-      # demo-account.txt is what the account is: the user, its flag and name, and its memberships.
-      # The demo step below checks the demo command leaves exactly the same thing behind.
-      - name: Seed twice (the demo account comes out the same both times)
+      # seed makes the local account admin@example.com (src/Db/Users/LocalAccount.cs): an
+      # ordinary account with a password, Member in Acme and Admin in Globex (Acme's admins are the
+      # role checks' own boss and boss2). Twice: the second
+      # run changes nothing. There's no demo account any more; "Try the demo" makes sandboxes.
+      - name: Seed twice (the local account comes out the same both times)
         run: |
           db="dotnet run --no-build --configuration Release --project src/Db --"
           sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -s | -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
           query="SET NOCOUNT ON;
-            SELECT u.Id, u.Email, u.DisplayName, u.IsDemo, t.Name, tu.Status, r.Name
+            SELECT u.Id, u.Email, u.IsDemo, t.Name, tu.Status, r.Name
             FROM dbo.TenantUsers AS tu
             INNER JOIN dbo.Users AS u ON u.Id = tu.UserId
             INNER JOIN dbo.Tenants AS t ON t.Id = tu.TenantId
             INNER JOIN dbo.Roles AS r ON r.Id = tu.RoleId
-            WHERE t.Name IN ('Demo', 'Other Demo')
-            ORDER BY t.Name, u.Email;"
+            WHERE u.Email = 'admin@example.com'
+            ORDER BY t.Name;"
 
           $db seed
-          $sqlcmd -Q "$query" > demo-account.txt
-          cat demo-account.txt
-          # The demo account: Admin in Demo, Read-only in Other Demo. Plus six sample memberships
-          # (four people, one of them disabled) for the Members page.
-          grep -q '|guest@example.com|Demo Guest|1|Demo|Active|Admin$' demo-account.txt
-          grep -q '|guest@example.com|Demo Guest|1|Other Demo|Active|Read-only$' demo-account.txt
-          grep -q '|jordan.blake@example.com|Jordan Blake|1|Demo|Disabled|Member$' demo-account.txt
-          [ "$(wc -l < demo-account.txt)" -eq 8 ]
-          # The sample members can't sign in: no password.
-          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Users WHERE IsDemo = 1 AND Email LIKE '%.%@example.com' AND PasswordHash IS NULL;")" = 4 ]
+          $sqlcmd -Q "$query" > local-account.txt
+          cat local-account.txt
+          grep -q '|admin@example.com|0|Acme Corporation|Active|Member$' local-account.txt
+          grep -q '|admin@example.com|0|Globex Industries|Active|Admin$' local-account.txt
+          [ "$(wc -l < local-account.txt)" -eq 2 ]
+          # No demo rows: seed doesn't make any.
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT (SELECT COUNT(*) FROM dbo.Users WHERE IsDemo = 1) + (SELECT COUNT(*) FROM dbo.Tenants WHERE IsDemo = 1);")" = 0 ]
 
           output=$($db seed)
           echo "$output"
           echo "$output" | grep -q "unchanged password"
-          $sqlcmd -Q "$query" | diff demo-account.txt -
-          echo "$query" > demo-account.sql
-
-          # create-user and set-password refuse the demo account, with a message that fits
-          # both places it can come from.
-          if echo 'a-long-enough-password' | $db set-password --email guest@example.com --password-stdin 2> refused.txt; then
-            echo "set-password changed the demo account's password."
-            exit 1
-          fi
-          cat refused.txt
-          grep -q "only set by the demo command (from DEMO_PASSWORD) or, locally, by seed" refused.txt
+          $sqlcmd -Q "$query" | diff local-account.txt -
 
       # Accounts for the sign-in checks below. Passwords go in on standard input, never as
       # arguments. weak@example.com is hashed with weaker settings on purpose, so signing in
@@ -159,8 +147,8 @@ jobs:
           fi
           echo 'twelve-chars' | $db create-user --email rules@example.com --name Rules --password-stdin
 
-          # Roles from the Db runner: the default, --role needing --tenant, unknown roles, and
-          # the demo account (its roles are defined in DemoAccountSetup).
+          # Roles from the Db runner: the default, --role needing --tenant, and unknown roles.
+          # (set-role refusing a demo account is in the sandbox checks, which make one.)
           $sqlcmd -Q "SET NOCOUNT ON; SELECT r.Name FROM dbo.TenantUsers AS tu JOIN dbo.Users AS u ON u.Id = tu.UserId JOIN dbo.Roles AS r ON r.Id = tu.RoleId JOIN dbo.Tenants AS t ON t.Id = tu.TenantId WHERE u.Email = 'mem@example.com' AND t.Name = 'Globex Industries';" | grep -qx 'Member'
           $sqlcmd -Q "SET NOCOUNT ON; SELECT r.Name FROM dbo.TenantUsers AS tu JOIN dbo.Users AS u ON u.Id = tu.UserId JOIN dbo.Roles AS r ON r.Id = tu.RoleId WHERE u.Email = 'ro@example.com';" | grep -qx 'Read-only'
           if echo 'a-long-enough-password' | $db create-user --email norole@example.com --name "No Role" --role Admin --password-stdin; then
@@ -172,10 +160,6 @@ jobs:
             exit 1
           fi
           grep -q "The roles are: Admin, Member, Read-only" unknown-role.txt
-          if $db set-role --email guest@example.com --tenant Demo --role Member; then
-            echo "set-role changed the demo account's role."
-            exit 1
-          fi
 
           # A password on the command line is refused outright.
           if $db set-password --email ann@example.com --password oops; then
@@ -186,22 +170,6 @@ jobs:
           # Stored as a PHC string with the configured settings.
           $sqlcmd -Q "SET NOCOUNT ON; SELECT PasswordHash FROM dbo.Users WHERE Email = 'ann@example.com';" | grep -q '^\$argon2id\$v=19\$m=19456,t=2,p=1\$'
           $sqlcmd -Q "SET NOCOUNT ON; SELECT PasswordHash FROM dbo.Users WHERE Email = 'weak@example.com';" | grep -q '^\$argon2id\$v=19\$m=19456,t=1,p=1\$'
-
-      - name: Demo account (twice; the second run changes nothing, and it matches seed's)
-        env:
-          DEMO_PASSWORD: published-demo-pass
-        run: |
-          dotnet run --no-build --configuration Release --project src/Db -- demo
-          output=$(dotnet run --no-build --configuration Release --project src/Db -- demo)
-          echo "$output"
-          echo "$output" | grep -q "exists   user guest@example.com"
-          echo "$output" | grep -q "unchanged password"
-
-          # The same account seed made: same row, flag, name, tenants, memberships, and roles.
-          # (Only the password differs: DEMO_PASSWORD here, the local one from seed.)
-          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -s | -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
-          $sqlcmd -Q "$(cat demo-account.sql)" | diff demo-account.txt -
-          echo "The demo command and seed made the same demo account."
 
       # The API connects with its own login, which can read and write data but not change
       # the schema (sql/migrations/0005_app_runtime_role.sql). Prove both halves.
@@ -280,15 +248,14 @@ jobs:
 
       # Roles and permissions: 401 and 403, each role's permissions, changes taking effect for a
       # signed-in user, the self and last-admin rules (with two admins demoting each other at
-      # once), disabling one tenant only, and the demo account. Its own API instance, so its
-      # sign-ins don't count toward the rate limit the sign-in checks use up.
+      # once), and disabling one tenant only. Its own API instance, so its sign-ins don't count
+      # toward the rate limit the sign-in checks use up.
       - name: Role checks
         env:
           ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
           Auth__SessionCheckSeconds: "2"
           BASE: http://localhost:5083
           DB: dotnet run --no-build --configuration Release --project src/Db --
-          DEMO_PASSWORD: published-demo-pass
         run: |
           dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5083 > api-roles.log 2>&1 &
           pid=$!
@@ -300,6 +267,87 @@ jobs:
           done
           bash .github/scripts/role-checks.sh || { cat api-roles.log; exit 1; }
           kill $pid
+
+      # Demo sandboxes (src/Api/Demo): "Try the demo" makes exactly the expected rows; two clicks
+      # are two sandboxes that can't see each other; the visitor can change members in Demo and
+      # not in Other Demo; the Db runner won't give a demo account a password or a role; an
+      # expired sandbox's session ends and cleanup removes every row it owned and nothing else;
+      # use keeps a sandbox alive and signing out ends it; and the cleanup lock keeps a second
+      # instance from cleaning at the same time. Cleanup every 2 seconds so it's quick to see.
+      - name: Sandbox checks
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          Auth__SessionCheckSeconds: "2"
+          Demo__CleanupInterval: "00:00:02"
+          Demo__SandboxPermitLimit: "100"
+          BASE: http://localhost:5085
+          DB: dotnet run --no-build --configuration Release --project src/Db --
+          SQLCMD: docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1
+        run: |
+          dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5085 > api-sandbox.log 2>&1 &
+          pid=$!
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:5085/api/health -o /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          bash .github/scripts/sandbox-checks.sh || { cat api-sandbox.log; exit 1; }
+          grep -q 'Demo cleanup skipped: another instance is running it.' api-sandbox.log
+          kill $pid
+
+      # The limits on the anonymous endpoint: a cap on active sandboxes (set here to one more than
+      # exist now) and a rate limit per client address (3 here). The rate limiter counts every
+      # attempt, refused or not: one sandbox, two "busy", then 429.
+      - name: Sandbox limits (global cap and rate limit)
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          Demo__SandboxPermitLimit: "3"
+          BASE: http://localhost:5084
+        run: |
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
+          active=$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) / 2 FROM dbo.Tenants WHERE IsDemo = 1 AND ExpiresAt > SYSUTCDATETIME();")
+          echo "Active sandboxes: $active"
+          Demo__MaxActiveSandboxes=$((active + 1)) dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5084 > api-limits.log 2>&1 &
+          pid=$!
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:5084/api/health -o /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          source .github/scripts/lib.sh
+          expect "$(start_demo "$work/1")" 204
+          expect "$(start_demo "$work/2")" 503
+          expect "$(json_field detail)" "The demo is busy, try again later."
+          expect "$(start_demo "$work/3")" 503
+          expect "$(start_demo "$work/4")" 429
+          expect "$(json_field title)" "Too many demos started from here"
+          kill $pid
+
+      # With sandboxes on, the API refuses to start while a table could hold a sandbox's rows
+      # that cleanup doesn't know about: a TenantId column, or a foreign key to Users or Tenants
+      # (SandboxCleanup.CheckCoverageAsync). Two such tables are made here, as the admin; the
+      # app login only reads their metadata.
+      - name: Cleanup must cover every table a sandbox can own rows in
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+        run: |
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1"
+          $sqlcmd -Q "CREATE TABLE dbo.ProbeTenantRows (Id int NOT NULL, TenantId int NOT NULL);
+            CREATE TABLE dbo.ProbeUserRows (Id int NOT NULL, OwnerId int NOT NULL REFERENCES dbo.Users (Id));"
+          set +e
+          timeout 60 dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5086 > api-coverage.log 2>&1
+          code=$?
+          set -e
+          $sqlcmd -Q "DROP TABLE dbo.ProbeTenantRows; DROP TABLE dbo.ProbeUserRows;"
+          cat api-coverage.log
+          if [ "$code" -ne 1 ]; then
+            echo "Expected the API to refuse to start (exit code 1), got $code."
+            exit 1
+          fi
+          grep -q 'dbo.ProbeTenantRows.TenantId' api-coverage.log
+          grep -q 'dbo.ProbeUserRows.OwnerId' api-coverage.log
 
       # Every permission the database grants is one the code knows (src/Db/Authorization/Permissions.cs),
       # and every permission in the code is granted to some role. A typo in either place fails here.
@@ -384,11 +432,22 @@ jobs:
           [ "$status" = "401" ]
           grep -q '"status":401' me.json
 
-          # No demo account and no email configured: the sign-in page shows neither the demo
-          # account nor "Forgot password?".
+          # Sandboxes and email are off unless configured: the sign-in page shows neither
+          # "Try the demo" nor "Forgot password?".
           curl -sf http://localhost:5081/api/auth/sign-in-info -o sign-in-info.json
-          grep -q '"demoAccount":null' sign-in-info.json
+          grep -q '"demo":null' sign-in-info.json
           grep -q '"emailEnabled":false' sign-in-info.json
+
+          # With sandboxes off there's no endpoint and no cleanup service: a fork never gets an
+          # anonymous button that creates accounts unless it asks for one.
+          curl -sf -c off-jar -b off-jar -o /dev/null http://localhost:5081/api/auth/antiforgery
+          status=$(curl -s -o off.json -w '%{http_code}' -c off-jar -b off-jar -X POST \
+            -H "X-XSRF-TOKEN: $(awk '$6 ~ /ds-xsrf$/ { print $7 }' off-jar)" http://localhost:5081/api/demo/sandbox)
+          [ "$status" = "404" ]
+          if grep -q 'Demo cleanup' api-prod.log; then
+            echo "The cleanup service ran with sandboxes off."
+            exit 1
+          fi
 
           # Every response asks the browser not to send a Referer to other sites.
           curl -sI http://localhost:5081/api/health | grep -qi '^referrer-policy: no-referrer'
@@ -401,11 +460,11 @@ jobs:
           grep -qi '^set-cookie: __Host-ds-xsrf=.*; secure; samesite=strict' af.txt
           token=$(awk '$6 == "__Host-ds-xsrf" { print $7 }' jar)
           curl -s $https -D signin.txt -c jar -b jar -o /dev/null -H "X-XSRF-TOKEN: $token" -H 'Content-Type: application/json' \
-            -d '{"email":"guest@example.com","password":"published-demo-pass"}' http://localhost:5081/api/auth/sign-in
+            -d '{"email":"boss@example.com","password":"a-long-enough-password"}' http://localhost:5081/api/auth/sign-in
           cat signin.txt
           grep -q '^HTTP/1.1 200' signin.txt
           grep -qi '^set-cookie: __Host-ds-auth=.*; secure; samesite=lax; httponly' signin.txt
-          curl -sf $https -b jar http://localhost:5081/api/auth/me | grep -q '"isDemo":true'
+          curl -sf $https -b jar http://localhost:5081/api/auth/me | grep -q '"email":"boss@example.com"'
 
           # HSTS on HTTPS requests, without includeSubDomains or preload. (Never sent to
           # localhost, so this asks for another host name.)
@@ -415,6 +474,44 @@ jobs:
             echo "HSTS must not include subdomains or preload."
             exit 1
           fi
+
+      # A database that has the step 7 shared demo account, made by step 7's own code (pinned
+      # to the step 7 commit), then migrated by this build: migration 0012 marks its five users
+      # and two tenants expired, and the API's first cleanup run removes them, leaving the
+      # real tenants alone. Its own database, so the checks above aren't affected.
+      - name: Upgrade from step 7 (the shared demo account goes away)
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=UpgradeCheck;User Id=sa;Password=LocalDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          DOTNET_ENVIRONMENT: Development
+        run: |
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -h -1 -W -d UpgradeCheck -U sa -P LocalDevOnly!ChangeMe1"
+          step7=a846d63255993448555ef659b9ce2d3ddf9cb4e6
+          git fetch --no-tags --depth 1 origin "$step7"
+          git worktree add ../step7 "$step7"
+          (cd ../step7 && dotnet build src/Db --configuration Release && \
+            dotnet run --no-build --configuration Release --project src/Db -- migrate && \
+            dotnet run --no-build --configuration Release --project src/Db -- seed)
+          shared="'guest@example.com', 'sam.rivera@example.com', 'priya.shah@example.com', 'lee.chen@example.com', 'jordan.blake@example.com'"
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Users WHERE Email IN ($shared);")" = 5 ]
+
+          dotnet run --no-build --configuration Release --project src/Db -- migrate
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Users WHERE Email IN ($shared) AND ExpiresAt <= SYSUTCDATETIME();")" = 5 ]
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Tenants WHERE IsDemo = 1 AND ExpiresAt <= SYSUTCDATETIME();")" = 2 ]
+
+          dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5087 > api-upgrade.log 2>&1 &
+          pid=$!
+          for attempt in $(seq 1 60); do
+            if grep -q 'Demo cleanup removed' api-upgrade.log; then
+              break
+            fi
+            sleep 1
+          done
+          kill $pid
+          cat api-upgrade.log
+          grep -q 'Demo cleanup removed 2 tenant(s), 5 user(s)' api-upgrade.log
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Users WHERE Email IN ($shared);")" = 0 ]
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Tenants WHERE Name IN ('Demo', 'Other Demo');")" = 0 ]
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Tenants WHERE Name IN ('Acme Corporation', 'Globex Industries');")" = 2 ]
 
       - name: Editing an applied migration makes migrate fail
         run: |

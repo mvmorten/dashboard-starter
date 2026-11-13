@@ -23,4 +23,10 @@ put() {
   status "$1" -X PUT -H "X-XSRF-TOKEN: $(xsrf "$1")" -H 'Content-Type: application/json' -d "$3" "$BASE$2"
 }
 sign_in() { post "$1" /api/auth/sign-in "{\"email\":\"$2\",\"password\":\"$3\"}"; }
+# start_demo <jar> -> the HTTP status of "Try the demo"; on 204 the jar is signed in to a new sandbox
+start_demo() { post "$1" /api/demo/sandbox; }
+# A string field from the last response body: json_field title -> Not found
+json_field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$body" | head -1; }
+# me_email <jar> -> the signed-in user's email, from /me
+me_email() { status "$1" "$BASE/api/auth/me" > /dev/null; json_field email; }
 expect() { if [ "$1" != "$2" ]; then echo "Expected $2, got $1:"; cat "$body"; echo; exit 1; fi; }

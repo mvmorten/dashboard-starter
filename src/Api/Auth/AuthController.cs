@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using DashboardStarter.Api.Demo;
 using DashboardStarter.Api.Email;
 using DashboardStarter.Api.Tenants;
 using DashboardStarter.Db.Passwords;
@@ -36,7 +37,8 @@ public sealed class AuthController : ControllerBase
   private readonly IAntiforgery _antiforgery;
   private readonly AuthCookies _cookies;
   private readonly AuthOptions _options;
-  private readonly DemoAccountOptions _demo;
+  private readonly DemoOptions _demo;
+  private readonly SandboxStore _sandboxes;
   private readonly EmailStatus _email;
   private readonly ILogger<AuthController> _logger;
 
@@ -47,7 +49,8 @@ public sealed class AuthController : ControllerBase
     IAntiforgery antiforgery,
     AuthCookies cookies,
     IOptions<AuthOptions> options,
-    IOptions<DemoAccountOptions> demo,
+    IOptions<DemoOptions> demo,
+    SandboxStore sandboxes,
     EmailStatus email,
     ILogger<AuthController> logger)
   {
@@ -58,6 +61,7 @@ public sealed class AuthController : ControllerBase
     _cookies = cookies;
     _options = options.Value;
     _demo = demo.Value;
+    _sandboxes = sandboxes;
     _email = email;
     _logger = logger;
   }
@@ -85,17 +89,14 @@ public sealed class AuthController : ControllerBase
   }
 
   /// <summary>
-  /// What the sign-in page needs before anyone signs in: the demo account, if this deployment
-  /// has one, and whether "Forgot password?" can send an email.
+  /// What the sign-in page needs before anyone signs in: whether "Try the demo" is on (and how
+  /// long a sandbox lasts, to say so), and whether "Forgot password?" can send an email.
   /// </summary>
   [AllowAnonymous]
   [HttpGet("sign-in-info")]
   public ActionResult<SignInInfoResponse> SignInInfo()
   {
-    DemoAccount? demo = string.IsNullOrWhiteSpace(_demo.Email) || string.IsNullOrEmpty(_demo.Password)
-      ? null
-      : new DemoAccount(_demo.Email, _demo.Password);
-
+    DemoInfo? demo = _demo.SandboxesEnabled ? new DemoInfo(_demo.SandboxHours, _demo.SandboxIdleMinutes) : null;
     return Ok(new SignInInfoResponse(demo, _email.Enabled));
   }
 
@@ -125,13 +126,7 @@ public sealed class AuthController : ControllerBase
 
     if (verification == PasswordVerification.Failed)
     {
-      // The demo account's password is public; counting failures would only let anyone
-      // lock everyone out. Rate limiting protects it instead.
-      if (!user.IsDemo)
-      {
-        await _userStore.RecordFailedSignInAsync(user.Id, _options.MaxFailedSignIns, _options.LockoutMinutes, cancellationToken);
-      }
-
+      await _userStore.RecordFailedSignInAsync(user.Id, _options.MaxFailedSignIns, _options.LockoutMinutes, cancellationToken);
       _logger.LogInformation("Sign-in failed for user {UserId}: wrong password.", user.Id);
       return SignInFailed();
     }
@@ -160,9 +155,11 @@ public sealed class AuthController : ControllerBase
     return await BuildMeAsync(user.Id, tenantId, cancellationToken);
   }
 
+  /// <summary>Ends the session. For a demo visitor it also ends their sandbox (SandboxStore.EndAsync).</summary>
   [HttpPost("sign-out")]
-  public async Task<IActionResult> SignOutUser()
+  public async Task<IActionResult> SignOutUser(CancellationToken cancellationToken)
   {
+    await _sandboxes.EndAsync(CurrentUserId(), cancellationToken);
     await HttpContext.SignOutAsync(AuthClaims.Scheme);
     return NoContent();
   }

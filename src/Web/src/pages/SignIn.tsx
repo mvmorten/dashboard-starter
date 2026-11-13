@@ -10,7 +10,7 @@ import {
 import { ApiError, refreshAntiforgeryToken } from "../api";
 import AuthCard from "../auth/AuthCard";
 import PasswordField from "../auth/PasswordField";
-import { safeReturnUrl, signIn } from "../auth/session";
+import { safeReturnUrl, signIn, startDemo } from "../auth/session";
 import { useMe } from "../auth/useMe";
 import { useSignInInfo } from "../auth/useSignInInfo";
 import { usePageTitle } from "../layout/usePageTitle";
@@ -34,8 +34,10 @@ export default function SignIn() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
-  const submitRef = useRef<HTMLButtonElement>(null);
+  const [demoError, setDemoError] = useState<string | null>(null);
+  const [demoPending, setDemoPending] = useState(false);
   const errorId = useId();
+  const demoErrorId = useId();
 
   useEffect(() => {
     emailRef.current?.focus();
@@ -62,15 +64,16 @@ export default function SignIn() {
     }
   }
 
-  function fillDemoAccount() {
-    if (!info?.demoAccount) {
-      return;
+  async function tryDemo() {
+    setDemoError(null);
+    setDemoPending(true);
+    try {
+      await startDemo(queryClient);
+      navigate("/", { replace: true, state: { focusMain: true } });
+    } catch (caught) {
+      setDemoError(describeDemo(caught));
+      setDemoPending(false);
     }
-
-    setEmail(info.demoAccount.email);
-    setPassword(info.demoAccount.password);
-    setError(null);
-    submitRef.current?.focus();
   }
 
   return (
@@ -123,35 +126,30 @@ export default function SignIn() {
           {error}
         </div>
 
-        <button
-          ref={submitRef}
-          type="submit"
-          className="primary-button"
-          disabled={pending}
-        >
+        <button type="submit" className="primary-button" disabled={pending}>
           {pending ? "Signing in..." : "Sign in"}
         </button>
       </form>
 
-      {info?.demoAccount && (
+      {info?.demo && (
         <section className="demo-account" aria-labelledby="demo-heading">
           <h2 id="demo-heading">Try the demo</h2>
           <p>
-            Everyone shares this account, so don&apos;t put anything private in
-            it.
+            Get your own private copy with sample data. Nobody else can see it.
+            It&apos;s deleted after {duration(info.demo.sandboxIdleMinutes)}{" "}
+            without use, or {duration(info.demo.sandboxHours * 60)} at most, and
+            signing out ends it.
           </p>
-          <dl>
-            <dt>Email</dt>
-            <dd>
-              <code>{info.demoAccount.email}</code>
-            </dd>
-            <dt>Password</dt>
-            <dd>
-              <code>{info.demoAccount.password}</code>
-            </dd>
-          </dl>
-          <button type="button" onClick={fillDemoAccount}>
-            Use demo account
+          <div id={demoErrorId} role="alert" className="form-error">
+            {demoError}
+          </div>
+          <button
+            type="button"
+            onClick={tryDemo}
+            disabled={demoPending}
+            aria-describedby={demoError ? demoErrorId : undefined}
+          >
+            {demoPending ? "Setting up your demo..." : "Try the demo"}
           </button>
         </section>
       )}
@@ -166,6 +164,25 @@ function readNotice(state: unknown): string | null {
   }
 
   return null;
+}
+
+// "2 hours", "90 minutes", "24 hours".
+function duration(minutes: number): string {
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return hours === 1 ? "1 hour" : `${hours} hours`;
+  }
+
+  return `${minutes} minutes`;
+}
+
+// "The demo is busy" (503) and the rate limit (429) both say what to do in their detail.
+function describeDemo(error: unknown): string {
+  if (error instanceof ApiError && error.detail) {
+    return error.detail;
+  }
+
+  return "The demo couldn't start. Try again in a moment.";
 }
 
 function describe(error: unknown): string {

@@ -8,13 +8,23 @@ using Microsoft.Data.SqlClient;
 namespace DashboardStarter.Db.Users;
 
 /// <summary>
-/// The SQL behind create-user, set-password, demo, and the demo account in seed. All of it runs inside the caller's
-/// transaction, so a command either does everything or nothing.
+/// The SQL behind create-user, set-password, set-role, and the local account in seed. All of it runs inside the
+/// caller's transaction, so a command either does everything or nothing.
 /// </summary>
 internal static class UserAccounts
 {
   public const int MaxEmailLength = 256;
   public const int MaxNameLength = 200;
+
+  /// <summary>
+  /// Why create-user, set-password, and set-role won't touch a demo account. A sandbox is the
+  /// visitor's own and is removed when it expires; with a password it could outlive that.
+  /// </summary>
+  public static string DemoRefusal(string email)
+  {
+    return $"{email} is a demo account from \"Try the demo\". Demo accounts can't have a password or be changed from here; "
+      + "they're removed when the demo ends.";
+  }
 
   public static async Task<UserRow?> FindByEmailAsync(SqlConnection connection, SqlTransaction transaction, string email)
   {
@@ -77,21 +87,6 @@ internal static class UserAccounts
       transaction);
   }
 
-  /// <summary>
-  /// Replaces the stored hash with a stronger one for the same password. Sessions stay
-  /// open: the password didn't change.
-  /// </summary>
-  public static async Task ReplaceHashAsync(SqlConnection connection, SqlTransaction transaction, int userId, string passwordHash)
-  {
-    const string sql = """
-      UPDATE dbo.Users
-      SET PasswordHash = @PasswordHash
-      WHERE Id = @Id;
-      """;
-
-    await connection.ExecuteAsync(sql, new { Id = userId, PasswordHash = passwordHash }, transaction);
-  }
-
   /// <summary>Finds a tenant by id ("3") or by exact name ("Acme Corporation").</summary>
   public static async Task<TenantRow> FindTenantAsync(SqlConnection connection, SqlTransaction transaction, string idOrName)
   {
@@ -116,26 +111,6 @@ internal static class UserAccounts
     }
 
     return matches[0];
-  }
-
-  /// <summary>Returns the tenant with this name, creating it if there is none.</summary>
-  public static async Task<(int Id, bool Created)> EnsureTenantAsync(SqlConnection connection, SqlTransaction transaction, string name)
-  {
-    const string sql = """
-      DECLARE @id int = (SELECT TOP (1) Id FROM dbo.Tenants WHERE Name = @Name ORDER BY Id);
-      DECLARE @created bit = 0;
-
-      IF @id IS NULL
-      BEGIN
-        INSERT INTO dbo.Tenants (Name) VALUES (@Name);
-        SET @id = SCOPE_IDENTITY();
-        SET @created = 1;
-      END
-
-      SELECT @id AS Id, @created AS Created;
-      """;
-
-    return await connection.QuerySingleAsync<(int Id, bool Created)>(sql, new { Name = name }, transaction);
   }
 
   /// <summary>
@@ -170,35 +145,6 @@ internal static class UserAccounts
 
     return await connection.ExecuteScalarAsync<string>(
       sql, new { TenantId = tenantId, UserId = userId, RoleId = roleId }, transaction) ?? "exists";
-  }
-
-  /// <summary>
-  /// Makes the membership exactly this: added if missing, with this role and status. For the demo
-  /// accounts only, whose memberships are a fixed definition (DemoAccountSetup), not something
-  /// people change. Returns what it did.
-  /// </summary>
-  public static async Task<string> SetDefinedMembershipAsync(
-    SqlConnection connection, SqlTransaction transaction, int tenantId, int userId, int roleId, string status)
-  {
-    const string sql = """
-      IF NOT EXISTS (SELECT 1 FROM dbo.TenantUsers WHERE TenantId = @TenantId AND UserId = @UserId)
-      BEGIN
-        INSERT INTO dbo.TenantUsers (TenantId, UserId, Status, RoleId) VALUES (@TenantId, @UserId, @Status, @RoleId);
-        SELECT 'added';
-      END
-      ELSE
-      BEGIN
-        UPDATE dbo.TenantUsers
-        SET RoleId = @RoleId, Status = @Status, UpdatedAt = SYSUTCDATETIME()
-        WHERE TenantId = @TenantId
-          AND UserId = @UserId
-          AND (RoleId <> @RoleId OR Status <> @Status);
-        SELECT CASE WHEN @@ROWCOUNT = 1 THEN 'updated' ELSE 'exists' END;
-      END
-      """;
-
-    return await connection.ExecuteScalarAsync<string>(
-      sql, new { TenantId = tenantId, UserId = userId, RoleId = roleId, Status = status }, transaction) ?? "exists";
   }
 
   /// <summary>Finds a role by name ("Admin", "Read-only"; any capitalization).</summary>

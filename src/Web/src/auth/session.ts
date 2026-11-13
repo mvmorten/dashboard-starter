@@ -25,6 +25,20 @@ export async function signIn(
   return me;
 }
 
+// "Try the demo": the API creates a private sandbox (a demo user and two tenants) and signs
+// in to it. It answers 204, so the user comes from /me afterwards.
+export async function startDemo(queryClient: QueryClient): Promise<Me> {
+  await apiPost<void>("/api/demo/sandbox", undefined, {
+    unauthorizedIsAnswer: true,
+  });
+  await refreshAntiforgeryToken();
+  const me = await apiGet<Me>("/api/auth/me");
+
+  queryClient.clear();
+  queryClient.setQueryData(meQueryKey, me);
+  return me;
+}
+
 export async function signOut(queryClient: QueryClient): Promise<void> {
   try {
     await apiPost<void>("/api/auth/sign-out", undefined, {
@@ -52,11 +66,11 @@ export async function switchTenant(
   });
 }
 
-// GET /api/auth/sign-in-info: the public demo account, when this deployment has one, and
-// whether it can send password reset emails. Both come from the API's configuration, not
+// GET /api/auth/sign-in-info: whether "Try the demo" is on (and how long a sandbox lasts),
+// and whether it can send password reset emails. Both come from the API's configuration, not
 // from this bundle, so a fork without a demo or email shows neither.
 export interface SignInInfo {
-  demoAccount: { email: string; password: string } | null;
+  demo: { sandboxHours: number; sandboxIdleMinutes: number } | null;
   emailEnabled: boolean;
 }
 

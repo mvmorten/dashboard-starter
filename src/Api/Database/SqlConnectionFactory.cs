@@ -66,6 +66,27 @@ public sealed class SqlConnectionFactory
     }
   }
 
+  /// <summary>
+  /// A connection for work outside a request that touches one tenant's rows, like the demo
+  /// sandbox cleanup: the tenant is set exactly as a request sets it, read-only, so Row-Level
+  /// Security applies to background work too. There's no exemption from it for any login.
+  /// </summary>
+  public async Task<SqlConnection> OpenForTenantAsync(int tenantId, CancellationToken cancellationToken)
+  {
+    SqlConnection connection = new(_connectionString);
+    try
+    {
+      await connection.OpenAsync(cancellationToken);
+      await SetSessionTenantAsync(connection, tenantId, cancellationToken);
+      return connection;
+    }
+    catch
+    {
+      await connection.DisposeAsync();
+      throw;
+    }
+  }
+
   private async Task SetTenantAsync(SqlConnection connection, CancellationToken cancellationToken)
   {
     HttpContext? httpContext = _httpContextAccessor.HttpContext;
@@ -80,7 +101,12 @@ public sealed class SqlConnectionFactory
       return;
     }
 
+    await SetSessionTenantAsync(connection, tenantId.Value, cancellationToken);
+  }
+
+  private static async Task SetSessionTenantAsync(SqlConnection connection, int tenantId, CancellationToken cancellationToken)
+  {
     const string sql = "EXEC sys.sp_set_session_context @key = N'TenantId', @value = @TenantId, @read_only = 1;";
-    await connection.ExecuteAsync(new CommandDefinition(sql, new { TenantId = tenantId.Value }, cancellationToken: cancellationToken));
+    await connection.ExecuteAsync(new CommandDefinition(sql, new { TenantId = tenantId }, cancellationToken: cancellationToken));
   }
 }

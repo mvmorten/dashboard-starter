@@ -55,7 +55,7 @@ internal static class SetPasswordCommand
 
     if (user.IsDemo)
     {
-      throw new RunnerException(DemoAccountSetup.RefusalMessage(email));
+      throw new RunnerException(UserAccounts.DemoRefusal(email));
     }
 
     return user;

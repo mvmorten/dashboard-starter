@@ -4,7 +4,7 @@ An opinionated, open-source dashboard starter for building real business apps wi
 
 Clone it, rename it, and start on your actual product instead of rebuilding auth, layout, and plumbing for the tenth time.
 
-**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Sign in with the shared demo account: the sign-in page shows its email and password, and **Use demo account** fills them in. Everyone uses the same account, so don't put anything private in it. The account belongs to two tenants, "Demo" and "Other Demo": switch between them at the top, and the user menu at the top right signs you out. You land in the tenant the account used last, so with a shared account that may be whichever one the last visitor picked. The account is an Admin in "Demo" and Read-only in "Other Demo", so the Members page shows the same person with different permissions in each. Because it's shared, it can look at an admin's controls but not use them.
+**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Click **Try the demo** on the sign-in page and you get your own private sandbox: an account and two tenants with sample members, which nobody else can see. You're an Admin in "Demo", so everything there works for real, and Read-only in "Other Demo": switch between them at the top to see the same person with different permissions. A sandbox is deleted after 2 hours without use, 24 hours at most, or when you sign out.
 
 > **Status:** Just getting started. This project is being built in public, and every step is documented in a blog series. Expect the code to change quickly while the foundation takes shape.
 
@@ -48,7 +48,7 @@ This repo aims to be:
 - **Roles are per tenant.** You can be an admin in one tenant and read-only in another: each membership in `TenantUsers` has exactly one `RoleId`. See "Roles and permissions" below.
 - **Switching tenants.** With one tenant you go straight in. With several, you land in the one you used last and can switch from the top bar. The auth cookie holds your user and current tenant; switching checks your membership and issues a new cookie.
 - **Removing access works right away.** Memberships can be disabled per tenant, and the API rechecks membership on each request, cached for at most a minute (`Auth:SessionCheckSeconds`). The same check ends every session of a user whose password changed or who is locked out.
-- The development seed creates the same demo account as the live demo, in its two tenants ("Demo" and "Other Demo"), plus two sample tenants for your own test users. A real deployment starts empty: create your first tenant, and if your app only ever needs one, you can ignore the rest.
+- The development seed creates two sample tenants, Acme Corporation and Globex Industries, and a local account in both (`admin@example.com`). A real deployment starts empty: create your first tenant, and if your app only ever needs one, you can ignore the rest.
 
 ## Roles and permissions
 
@@ -68,6 +68,19 @@ This repo aims to be:
 - **Every tenant keeps an admin.** You can't change your own role or disable yourself, and no change may leave a tenant without an active member who can manage members. The rule is in one place (`src/Db/Users/Memberships.cs`), used by the API and the Db runner, and runs in one transaction with the change, under a lock on the tenant, so two admins demoting each other at once can't both succeed.
 - **Adding a permission in a fork:** add a constant to `Permissions.cs` (and to the front end's copy in `permissions.ts` if the UI needs it), write a migration that grants it to the roles that should have it, and put `[Authorize(Policy = ...)]` on the endpoints. CI fails if the code and the database don't list the same permissions.
 
+## Demo sandboxes
+
+A public demo needs a way in without an account. Step 7 used one shared account with a published password, which meant switching off anything a visitor could change, and every visitor saw what the last one typed. Now each visitor gets their own sandbox (`src/Api/Demo`).
+
+- **"Try the demo"** posts to an anonymous endpoint (`POST /api/demo/sandbox`) that creates, in one transaction, a user and two tenants ("Demo", where they're Admin, and "Other Demo", where they're Read-only), plus four sample members who are rows of this sandbox only. Then it signs them in with the normal cookie. What a sandbox contains is defined in one file, `SandboxDefinition.cs`.
+- **Demo rows are marked.** `Users.IsDemo` and `Tenants.IsDemo`, and an `ExpiresAt` on both. A check constraint allows `ExpiresAt` on demo rows only, so a real tenant or user can never expire. Sandbox addresses are on `demo.invalid`, a domain reserved so it can't belong to anyone.
+- **A sandbox can't become a real account.** It has no password and can't get one: change password, password reset, and the Db runner's `set-password` all refuse demo users, and there's no way to change an email. Inside its own tenants, though, it's a normal account: the visitor can change members' roles and disable them.
+- **Expiry.** A sandbox lasts 2 hours without use and 24 hours at most (`Demo:SandboxIdleMinutes`, `Demo:SandboxHours`). Each session check, at most once a minute, moves the expiry forward; signing out ends it at once, since there's no password to come back with. An expired sandbox's session ends on its next request.
+- **Limits on the anonymous endpoint.** The usual antiforgery token, 10 new sandboxes per client address per hour (ASP.NET Core's built-in rate limiter, per IPv4 address or IPv6 /64, behind App Service's forwarded headers), and at most 500 active at once, after which the button says "The demo is busy, try again later." The idle expiry is what keeps the cap honest: filling it takes steady work rather than one burst, because a sandbox nobody uses is gone in two hours.
+- **Cleanup is background work.** A `BackgroundService` in the API (`SandboxCleanupService`) runs every hour, and once at startup, on a built-in `PeriodicTimer`. It deletes expired demo tenants and users and every row they own, logging each run. With several App Service instances, `sp_getapplock` lets one clean at a time. It works on each tenant's rows with that tenant set in `SESSION_CONTEXT`, as a request does, so Row-Level Security applies to it too: no login is exempt.
+- **Adding a table?** If it has a `TenantId` column, or a foreign key to `Users` or `Tenants`, add it to `SandboxCleanup.TenantRows` or `SandboxCleanup.UserRows`. With sandboxes on, the API refuses to start until you do, naming the column, and CI proves that check works.
+- **Off by default.** A fork doesn't get an anonymous button that creates accounts unless it asks: with `Demo:SandboxesEnabled` false, the button is hidden, the endpoint is a 404, and the cleanup service doesn't run. Development turns it on; the deploy turns it on when the repo variable `DEMO_ENABLED` is `true`.
+
 ## Database conventions
 
 - **Dapper, not an ORM.** Queries are plain SQL you can read, tune, and run in SSMS.
@@ -84,7 +97,7 @@ This repo aims to be:
 /sql
   /migrations     run once, in order: tables, columns, indexes, data fixes
   /programmable   rerun every time: views, functions, procs, RLS predicates
-  /seed           development only: sample data (the demo account is made in C#, see below)
+  /seed           development only: sample data (the local account is made in C#, see below)
 ```
 
 - **Migrations** are numbered (`0001_tenants.sql`, `0002_users.sql`, ...) and idempotent: each checks before it changes (`IF NOT EXISTS`, `IF COL_LENGTH(...) IS NULL`), so running one twice is safe. Once a migration has run, it's never edited. A change is a new script.
@@ -162,7 +175,7 @@ The goal is the 80% every dashboard app needs on day one:
 - [x] Solution layout: front end, API, and database projects in one repo
 - [x] Local dev environment with Docker Compose and seeded data
 - [x] App shell: sidebar navigation, top bar with tenant switcher, responsive layout, light and dark themes
-- [x] Authentication: sign in and sign out, lockout, a shared demo account
+- [x] Authentication: sign in and sign out, lockout, and a private demo sandbox for every visitor
 - [x] Password reset and change password
 - [ ] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
 - [x] Users, roles, and permissions, enforced on both API and UI
@@ -216,7 +229,7 @@ From the repo root:
 cp .env.example .env                       # local dev settings (gitignored)
 docker compose up -d --wait                # start SQL Server and wait until it's ready
 dotnet run --project src/Db -- migrate     # create the database and schema
-dotnet run --project src/Db -- seed        # add demo data and a demo user (Development only)
+dotnet run --project src/Db -- seed        # add sample tenants and a local account (Development only)
 dotnet run --project src/Api               # API on http://localhost:5080
 ```
 
@@ -228,7 +241,7 @@ npm install
 npm run dev                                # front end on http://localhost:5173
 ```
 
-Open <http://localhost:5173> and sign in as the demo account: **`guest@example.com`**, password **`LocalDevOnly!Demo1`** (the sign-in page shows them too, with a button that fills them in). Like the SQL Server password in `.env.example`, that password is for your laptop only; `seed` refuses to run anywhere but Development. You'll land in one of the two demo tenants and can switch to the other from the top bar. The Health page shows three green checks: the front end, the API, and the database, with the schema version the database is on.
+Open <http://localhost:5173> and either click **Try the demo**, which makes you a private sandbox just like the live demo, or sign in with the local account: **`admin@example.com`**, password **`LocalDevOnly!Admin1`**. Like the SQL Server password in `.env.example`, that password is for your laptop only; `seed` refuses to run anywhere but Development. The local account is a Member in Acme Corporation and an Admin in Globex Industries; switch between them from the top bar. The Health page shows three green checks: the front end, the API, and the database, with the schema version the database is on.
 
 ![The health check page: front end, API, and database all ok, with the SQL Server version and schema version 0004_security_schema.sql](docs/images/health-check.png)
 
@@ -236,7 +249,7 @@ What just happened:
 
 - **Docker** runs SQL Server 2025 only, on port 1433, with its data in a named volume (`sqlserver-data`) so it survives restarts.
 - **`migrate`** creates the `DashboardStarter` database if it's missing, runs any new scripts in `sql/migrations`, then reruns everything in `sql/programmable`. It prints `applied`, `skipped`, or `failed` for each file. Run it as often as you like; the second run skips everything.
-- **`seed`** runs the scripts in `sql/seed` (two sample tenants, Acme Corporation and Globex Industries, for accounts you make yourself), then creates the demo account, `guest@example.com`, with the password above: Admin in "Demo", Read-only in "Other Demo", alongside four sample members who can't sign in. That's the same code the `demo` command runs on the live demo (`src/Db/Users/DemoAccountSetup.cs`), so the account is the same locally and deployed; only the password differs. It refuses to run outside Development. (Seeded before step 7? Your database still has the old `demo@example.com`. It's harmless; `docker compose down -v` starts over without it.)
+- **`seed`** runs the scripts in `sql/seed` (two sample tenants, Acme Corporation and Globex Industries), then creates the local account, `admin@example.com`, with the password above (`src/Db/Users/LocalAccount.cs`). Running it again changes nothing. It refuses to run outside Development. (Seeded in step 7? `migrate` retires the old shared demo account, `guest@example.com`, and the API's cleanup removes it at startup. Seeded before step 7? The old `demo@example.com` is still there. It's harmless; `docker compose down -v` starts over without it.)
 - **The API** checks at startup that no migrations are pending. If one is, it refuses to start and tells you to run `migrate`. It never changes the schema itself.
 - **The front end** runs on the Vite dev server, which forwards `/api` to the API, so the browser only ever talks to one origin.
 
@@ -252,7 +265,7 @@ dotnet run --project src/Db -- set-role --email ann@example.com --tenant "Acme C
 
 A password is 12 to 128 characters and can't be the account's own email; there are no rules about digits or symbols, following current NIST guidance. The API and the Db runner check the same rules (`src/Db/Passwords/PasswordRules.cs`).
 
-**Password reset emails, locally.** In Development nothing is sent: each email is written as a text file to `.dev-mail/` at the repo root (gitignored). Click "Forgot password?" on the sign-in page, enter the address of an account you made with `create-user` (the demo account `guest@example.com` never gets one), then open the newest file in `.dev-mail/` and follow its link. Links work once, for 30 minutes. Signed in, you can change your password from the account menu in the top bar.
+**Password reset emails, locally.** In Development nothing is sent: each email is written as a text file to `.dev-mail/` at the repo root (gitignored). Click "Forgot password?" on the sign-in page, enter `admin@example.com` or an account you made with `create-user` (demo sandboxes never get one), then open the newest file in `.dev-mail/` and follow its link. Links work once, for 30 minutes. Signed in, you can change your password from the account menu in the top bar.
 
 **Email on a deployed copy** is off until you set it up: the sign-in page hides "Forgot password?" and nothing is sent. Turning it on takes a Resend account, a sending subdomain with a few DNS records, and two settings (`Email__From`, `Email__ResendApiKey`); the walkthrough is step 7 of [docs/deploy-azure.md](docs/deploy-azure.md). Reset links are built from the `CanonicalHost` setting, never from the request, so a forged `Host` header can't point a link at someone else's site.
 
@@ -292,7 +305,7 @@ For the API you can use a user secret instead: `dotnet user-secrets set "Connect
 
 ```
 /sql                 schema scripts (see "Schema scripts" above)
-/src/Db              the Db runner: `migrate`, `seed`, `app-user`, and the account commands (`create-user`, `set-password`, `set-role`, `demo`)
+/src/Db              the Db runner: `migrate`, `seed`, `app-user`, and the account commands (`create-user`, `set-password`, `set-role`)
 /src/Api             ASP.NET Core Web API (controllers)
 /src/Web             React + TypeScript front end (Vite)
 /infra              Bicep for the Azure resources (see docs/deploy-azure.md)
@@ -313,7 +326,7 @@ npm run format:check         # Prettier (npm run format to fix)
 npm run build                # type-check and build
 ```
 
-CI also runs the API against a real SQL Server and checks sign-in end to end with curl: wrong passwords, lockout, the demo account, antiforgery, switching tenants, and sessions ending after a password change. The script is [`.github/scripts/auth-checks.sh`](.github/scripts/auth-checks.sh). A second script, [`.github/scripts/password-checks.sh`](.github/scripts/password-checks.sh), does the same for password reset and change password: one answer for every address, emails only to real accounts (read from `.dev-mail/`), links that work once and expire, sessions that end, the hourly email cap, and the password rules. Both run locally too (see the comments at their tops).
+CI also runs the API against a real SQL Server and checks sign-in end to end with curl: wrong passwords, lockout, antiforgery, switching tenants, and sessions ending after a password change. The script is [`.github/scripts/auth-checks.sh`](.github/scripts/auth-checks.sh). A second script, [`.github/scripts/password-checks.sh`](.github/scripts/password-checks.sh), does the same for password reset and change password: one answer for every address, emails only to real accounts (read from `.dev-mail/`), links that work once and expire, sessions that end, the hourly email cap, and the password rules. A third, [`.github/scripts/sandbox-checks.sh`](.github/scripts/sandbox-checks.sh), covers demo sandboxes: what one contains, that two can't see each other, expiry, cleanup removing exactly a sandbox's rows, and the cleanup lock. CI also checks the sandbox limits, that cleanup knows every table, and the upgrade from step 7's shared demo account. They all run locally too (see the comments at their tops).
 
 ### Security checks
 
@@ -372,6 +385,12 @@ It's OWASP's first recommendation. It's memory-hard, so each guess costs memory 
 
 **Why doesn't the API run migrations on startup?**
 A database that changes because you started the app is hidden behavior. You run the migrate command on purpose, and you see exactly which scripts it applied.
+
+**Why a sandbox per visitor instead of a shared demo account?**
+A shared account with a published password can't be allowed to change anything that matters: anyone could lock out the next visitor, demote the only admin, or leave something offensive for everyone after them. So step 7's demo showed an admin's controls switched off, which demonstrates very little. A sandbox per visitor costs a few rows and a cleanup job, and every visitor gets the real app. The cleanup also earned its place as the starter's example of background work.
+
+**Why does the demo cleanup run in the API, not in a scheduled GitHub Action?**
+It's data work, not schema work, so it fits the API's own database login, and it needs no extra secret, firewall rule, or schedule outside the app. Running in the app also shows forks how background work is done in ASP.NET Core: a `BackgroundService` with a `PeriodicTimer`, and a database app lock so several instances don't do the same work at once.
 
 **Why does the API have its own database login?**
 So "the API never changes the schema" is enforced by SQL Server, not just promised by our code. The deploy pipeline runs `migrate` with an admin login. The API connects as a separate login in the `app_runtime` role, which can read and write data but can't create, alter, or drop anything. If the API is ever compromised, the attacker gets the same limits. `dotnet run --project src/Db -- app-user` creates or updates that login.

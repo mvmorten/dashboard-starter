@@ -148,20 +148,6 @@ jobs:
           APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
         run: dotnet run --no-build --no-launch-profile --configuration Release --project src/Db -- app-user
 
-      # The shared account for a public demo, shown on the sign-in page. Only when the repo
-      # variable DEMO_ENABLED is true, so a fork doesn't get a demo account it never asked
-      # for. DEMO_PASSWORD is a variable, not a secret: it's published on purpose. Safe on
-      # every deploy: an unchanged password leaves the account alone, so people trying the
-      # demo stay signed in.
-      - name: Create or update the demo account
-        if: vars.DEMO_ENABLED == 'true'
-        env:
-          DOTNET_ENVIRONMENT: Production
-          ConnectionStrings__Default: Server=tcp:${{ env.SQL_SERVER_NAME }}.database.windows.net,1433;Database=${{ env.DATABASE_NAME }};User Id=${{ env.SQL_ADMIN_LOGIN }};Password=${{ secrets.SQL_ADMIN_PASSWORD }};Encrypt=True;TrustServerCertificate=False;Connect Timeout=60
-          DEMO_EMAIL: ${{ vars.DEMO_EMAIL }}
-          DEMO_PASSWORD: ${{ vars.DEMO_PASSWORD }}
-        run: dotnet run --no-build --no-launch-profile --configuration Release --project src/Db -- demo
-
       - name: Close the database firewall
         if: always()
         run: |
@@ -181,7 +167,9 @@ jobs:
       # doesn't sign everyone out (src/Api/Hosting/DataProtectionSetup.cs). Found by tag in
       # the resource group; infra/main.bicep creates them.
       #
-      # Demo__*: the demo account the sign-in page shows, or nothing when DEMO_ENABLED isn't true.
+      # Demo__SandboxesEnabled: "Try the demo", a private sandbox per visitor, removed by the
+      # app's cleanup service when it expires. True only when the repo variable DEMO_ENABLED is
+      # true, so a fork doesn't get an anonymous button that creates accounts it never asked for.
       #
       # Email__*: the sender and Resend key for password reset emails, or nothing when
       # EMAIL_ENABLED isn't true (the app then hides "Forgot password?"). With email on, the
@@ -194,8 +182,6 @@ jobs:
           CONNECTION_STRING: Server=tcp:${{ env.SQL_SERVER_NAME }}.database.windows.net,1433;Database=${{ env.DATABASE_NAME }};User Id=${{ env.APP_DB_USER }};Password=${{ secrets.APP_DB_PASSWORD }};Encrypt=True;TrustServerCertificate=False;Connect Timeout=60
           CANONICAL_HOST: ${{ vars.CANONICAL_HOST }}
           DEMO_ENABLED: ${{ vars.DEMO_ENABLED }}
-          DEMO_EMAIL: ${{ vars.DEMO_EMAIL || 'guest@example.com' }}
-          DEMO_PASSWORD: ${{ vars.DEMO_PASSWORD }}
           EMAIL_ENABLED: ${{ vars.EMAIL_ENABLED }}
           EMAIL_FROM: ${{ vars.EMAIL_FROM }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
@@ -247,18 +233,24 @@ jobs:
             exit 1
           fi
 
-          if [ "$DEMO_ENABLED" != "true" ]; then
-            DEMO_EMAIL=""
-            DEMO_PASSWORD=""
+          sandboxes=false
+          if [ "$DEMO_ENABLED" = "true" ]; then
+            sandboxes=true
           fi
 
           az webapp config appsettings set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
             --settings "ConnectionStrings__Default=$CONNECTION_STRING" "CanonicalHost=$CANONICAL_HOST" \
               "ASPNETCORE_FORWARDEDHEADERS_ENABLED=true" \
               "DataProtection__BlobUri=${storage}dataprotection/keys.xml" "DataProtection__KeyId=$key_id" \
-              "Demo__Email=$DEMO_EMAIL" "Demo__Password=$DEMO_PASSWORD" \
+              "Demo__SandboxesEnabled=$sandboxes" \
               "Email__From=$EMAIL_FROM" "Email__ResendApiKey=$RESEND_API_KEY" \
             --output none
+
+          # Step 7's shared demo account had its email and password here. Removed (not left
+          # blank) so nothing stale is in the app's settings. Deleting a setting that isn't
+          # there is fine, so this is safe on every deploy.
+          az webapp config appsettings delete --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
+            --setting-names Demo__Email Demo__Password --output none
 
       - name: Deploy the code
         run: |

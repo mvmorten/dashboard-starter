@@ -25,17 +25,3 @@ public sealed class AuthOptions
 
   public int SignInWindowSeconds { get; set; } = 60;
 }
-
-/// <summary>
-/// The public demo account, shown on the sign-in page. From the <c>Demo</c> configuration
-/// section; the deploy sets it when the repo variable DEMO_ENABLED is true. Empty means
-/// there's no demo account to show.
-/// </summary>
-public sealed class DemoAccountOptions
-{
-  public const string SectionName = "Demo";
-
-  public string? Email { get; set; }
-
-  public string? Password { get; set; }
-}

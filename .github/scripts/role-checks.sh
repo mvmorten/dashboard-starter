@@ -11,15 +11,12 @@
 #   boss2@example.com   Admin in Acme Corporation
 #   mem@example.com     Member in Acme Corporation and in Globex Industries
 #   ro@example.com      Read-only in Acme Corporation
-# and the demo account from seed or the demo command (guest@example.com, $DEMO_PASSWORD).
 #
 # Role names appear here as test data. The code under test only ever checks permissions.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
 PW=a-long-enough-password
-DEMO_EMAIL=${DEMO_EMAIL:-guest@example.com}
-DEMO_PASSWORD=${DEMO_PASSWORD:-published-demo-pass}
 ACME="Acme Corporation"
 
 # Ids and versions out of the last response ($body), with jq.
@@ -164,28 +161,5 @@ grep -q "nobody who can manage members" "$work/set-role.txt"
 loser=boss@example.com
 if [ "$admins" = boss@example.com ]; then loser=boss2@example.com; fi
 $DB set-role --email "$loser" --tenant "$ACME" --role Admin > /dev/null
-
-echo "11. The demo account: Admin in Demo, Read-only in Other Demo, and every member change refused"
-expect "$(sign_in "$work/demo" "$DEMO_EMAIL" "$DEMO_PASSWORD")" 200
-demo=$(tenant_id Demo)
-other=$(tenant_id "Other Demo")
-expect "$(post "$work/demo" /api/auth/switch-tenant "{\"tenantId\":$demo}")" 200
-expect "$(json .role)" Admin
-expect "$(json '.permissions | join(",")')" "members.manage,members.view"
-load_members "$work/demo"
-[ "$(member sam.rivera@example.com .roleName)" = Admin ]
-[ "$(member jordan.blake@example.com .status)" = Disabled ]
-expect "$(set_role "$work/demo" priya.shah@example.com Read-only)" 403
-expect "$(json .title)" "The demo account can't change members"
-expect "$(set_status "$work/demo" priya.shah@example.com Disabled)" 403
-expect "$(set_status "$work/demo" jordan.blake@example.com Active)" 403
-expect "$(set_role "$work/demo" "$DEMO_EMAIL" Member)" 400
-expect "$(post "$work/demo" /api/auth/switch-tenant "{\"tenantId\":$other}")" 200
-expect "$(json .role)" Read-only
-expect "$(json '.permissions | join(",")')" "members.view"
-expect "$(set_role "$work/demo" priya.shah@example.com Read-only)" 403
-expect "$(json .title)" "You don't have access to this"
-load_members "$work/demo"
-[ "$(member priya.shah@example.com .roleName)" = Member ]
 
 echo "All role checks passed."
