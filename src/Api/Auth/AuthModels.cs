@@ -37,11 +37,12 @@ public sealed record MeResponse(
 public sealed record MeUser(int Id, string Email, string DisplayName, bool IsDemo);
 
 /// <summary>GET /api/auth/sign-in-info: what the sign-in page shows before anyone signs in.</summary>
-/// <param name="DemoAccount">The public demo's shared account, or null when this deployment has none.</param>
+/// <param name="Demo">Demo sandboxes, when this deployment has them ("Try the demo"), or null.</param>
 /// <param name="EmailEnabled">Whether password reset emails can be sent; the page hides "Forgot password?" otherwise.</param>
-public sealed record SignInInfoResponse(DemoAccount? DemoAccount, bool EmailEnabled);
+public sealed record SignInInfoResponse(DemoInfo? Demo, bool EmailEnabled);
 
-public sealed record DemoAccount(string Email, string Password);
+/// <summary>How long a demo sandbox lasts, so the page can tell visitors before they start.</summary>
+public sealed record DemoInfo(int SandboxHours, int SandboxIdleMinutes);
 
 /// <summary>Body of POST /api/auth/forgot-password.</summary>
 public sealed record ForgotPasswordRequest([Required, MaxLength(256)] string Email);

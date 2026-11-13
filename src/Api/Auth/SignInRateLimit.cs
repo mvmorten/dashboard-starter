@@ -7,7 +7,7 @@ namespace DashboardStarter.Api.Auth;
 /// <summary>
 /// Limits sign-in attempts per client address, with ASP.NET Core's built-in rate limiter.
 /// Lockout protects one account from many guesses; this protects every account from one
-/// client, including the demo account, which is never locked out.
+/// client. "Try the demo" (DemoController) is limited per client address the same way.
 /// </summary>
 /// <remarks>
 /// RemoteIpAddress is the real client only because forwarded headers are processed first

@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using System.Threading.Tasks;
 using DashboardStarter.Api.Auth;
 using DashboardStarter.Api.Database;
+using DashboardStarter.Api.Demo;
 using DashboardStarter.Api.Email;
 using DashboardStarter.Api.Hosting;
 using DashboardStarter.Api.Members;
@@ -43,7 +44,8 @@ public static class Program
     builder.Services.AddSingleton<StartupSchemaCheck>();
     builder.Services.AddSingleton<DataProtectionCheck>();
 
-    AddAuthentication(builder);
+    DemoOptions demo = AddDemoSandboxes(builder);
+    AddAuthentication(builder, demo);
     DataProtectionSetup.AddDataProtectionKeys(builder.Services, builder.Configuration);
     EmailSetup.AddEmail(builder.Services, builder.Configuration, builder.Environment);
 
@@ -64,9 +66,11 @@ public static class Program
 
     WebApplication app = builder.Build();
 
+    // With sandboxes on, the cleanup must know every table a sandbox's rows can be in.
     bool canStart = await app.Services.GetRequiredService<StartupSchemaCheck>().RunAsync()
       && app.Services.GetRequiredService<DataProtectionCheck>().Run()
-      && app.Services.GetRequiredService<EmailCheck>().Run();
+      && app.Services.GetRequiredService<EmailCheck>().Run()
+      && (!demo.SandboxesEnabled || await app.Services.GetRequiredService<SandboxCleanup>().CheckCoverageAsync());
     if (!canStart)
     {
       return 1;
@@ -141,15 +145,34 @@ public static class Program
   }
 
   /// <summary>
+  /// Demo sandboxes: a private user and tenants per visitor, from "Try the demo". Off by default.
+  /// The store is always there (the session check asks it to keep a sandbox alive); the cleanup
+  /// service only runs when sandboxes are on.
+  /// </summary>
+  private static DemoOptions AddDemoSandboxes(WebApplicationBuilder builder)
+  {
+    IConfigurationSection section = builder.Configuration.GetSection(DemoOptions.SectionName);
+    DemoOptions demo = section.Get<DemoOptions>() ?? new DemoOptions();
+    builder.Services.Configure<DemoOptions>(section);
+    builder.Services.AddSingleton<SandboxStore>();
+    builder.Services.AddSingleton<SandboxCleanup>();
+    if (demo.SandboxesEnabled)
+    {
+      builder.Services.AddHostedService<SandboxCleanupService>();
+    }
+
+    return demo;
+  }
+
+  /// <summary>
   /// Cookie sign-in with our own user tables (no ASP.NET Core Identity), the session check,
   /// password hashing, antiforgery, password reset, and the rate limits.
   /// </summary>
-  private static void AddAuthentication(WebApplicationBuilder builder)
+  private static void AddAuthentication(WebApplicationBuilder builder, DemoOptions demo)
   {
     IConfigurationSection authSection = builder.Configuration.GetSection(AuthOptions.SectionName);
     AuthOptions authOptions = authSection.Get<AuthOptions>() ?? new AuthOptions();
     builder.Services.Configure<AuthOptions>(authSection);
-    builder.Services.Configure<DemoAccountOptions>(builder.Configuration.GetSection(DemoAccountOptions.SectionName));
 
     PasswordHashingOptions hashing = builder.Configuration.GetSection(PasswordHashingOptions.SectionName).Get<PasswordHashingOptions>()
       ?? new PasswordHashingOptions();
@@ -224,13 +247,18 @@ public static class Program
 
         // Say which limit was hit: the password pages shouldn't talk about sign-in attempts.
         string? policy = context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
-        string title = policy == PasswordResetOptions.RateLimitPolicyName ? "Too many password requests" : "Too many sign-in attempts";
+        (string title, string detail) = policy switch
+        {
+          PasswordResetOptions.RateLimitPolicyName => ("Too many password requests", "Wait a minute, then try again."),
+          DemoController.RateLimitPolicyName => ("Too many demos started from here", "Wait a while, then try again."),
+          _ => ("Too many sign-in attempts", "Wait a minute, then try again."),
+        };
 
         return new ValueTask(ProblemResponses.WriteAsync(
           context.HttpContext,
           StatusCodes.Status429TooManyRequests,
           title,
-          "Wait a minute, then try again."));
+          detail));
       };
 
       options.AddPolicy(SignInRateLimit.PolicyName, httpContext => RateLimitPartition.GetFixedWindowLimiter(
@@ -250,6 +278,18 @@ public static class Program
         {
           PermitLimit = resetOptions.PermitLimit,
           Window = TimeSpan.FromSeconds(resetOptions.WindowSeconds),
+          QueueLimit = 0,
+        }));
+
+      // "Try the demo": per client address, sliding, so the limit can't be doubled by
+      // clicking just before and just after a fixed window turns over.
+      options.AddPolicy(DemoController.RateLimitPolicyName, httpContext => RateLimitPartition.GetSlidingWindowLimiter(
+        SignInRateLimit.PartitionKey(httpContext),
+        _ => new SlidingWindowRateLimiterOptions
+        {
+          PermitLimit = demo.SandboxPermitLimit,
+          Window = TimeSpan.FromMinutes(demo.SandboxWindowMinutes),
+          SegmentsPerWindow = 6,
           QueueLimit = 0,
         }));
     });

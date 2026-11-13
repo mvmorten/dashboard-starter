@@ -27,16 +27,16 @@ public sealed class UserStore
   {
     // Email has a case-insensitive collation (checked by migration 0006), so any spelling
     // of the address finds the account. Lockout is decided by the database's clock, the
-    // same one that set it. The demo account is never locked out.
+    // same one that set it. An expired demo user counts as no account at all.
     const string sql = """
       SELECT
         Id,
         PasswordHash,
         SecurityStamp,
-        IsDemo,
-        CAST(CASE WHEN IsDemo = 0 AND LockoutEndAt > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS IsLockedOut
+        CAST(CASE WHEN LockoutEndAt > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS IsLockedOut
       FROM dbo.Users
-      WHERE Email = @Email;
+      WHERE Email = @Email
+        AND (ExpiresAt IS NULL OR ExpiresAt > SYSUTCDATETIME());
       """;
 
     await using SqlConnection connection = await _connectionFactory.OpenAsync(cancellationToken);
@@ -58,8 +58,7 @@ public sealed class UserStore
           THEN DATEADD(minute, @LockoutMinutes, SYSUTCDATETIME()) ELSE LockoutEndAt END,
         FailedSignInCount = CASE WHEN FailedSignInCount + 1 >= @MaxFailures
           THEN 0 ELSE FailedSignInCount + 1 END
-      WHERE Id = @Id
-        AND IsDemo = 0;
+      WHERE Id = @Id;
       """;
 
     await using SqlConnection connection = await _connectionFactory.OpenAsync(cancellationToken);
@@ -167,7 +166,7 @@ public sealed class UserStore
   /// <summary>
   /// Sets a new password and security stamp, so every other session ends. Only if the stored
   /// hash is still the one the current password was checked against: two changes at once
-  /// can't both win. Returns false (nothing changed) otherwise, or for the demo account.
+  /// can't both win. Returns false (nothing changed) otherwise, or for a demo account.
   /// </summary>
   public async Task<bool> ChangePasswordAsync(int userId, string verifiedHash, string newHash, byte[] newSecurityStamp, CancellationToken cancellationToken)
   {
@@ -223,7 +222,9 @@ public sealed class UserStore
     const string sql = """
       SELECT
         u.SecurityStamp,
-        CAST(CASE WHEN u.IsDemo = 0 AND u.LockoutEndAt > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS IsLockedOut,
+        CAST(CASE WHEN u.LockoutEndAt > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS IsLockedOut,
+        u.IsDemo,
+        CAST(CASE WHEN u.ExpiresAt <= SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS IsExpired,
         CAST(CASE
           WHEN @TenantId IS NULL THEN 1
           WHEN EXISTS (
@@ -255,7 +256,8 @@ public sealed class UserStore
       return null;
     }
 
-    return new SessionState(row.SecurityStamp, row.IsLockedOut, row.IsTenantMember, ParsePermissions(row.Permissions));
+    return new SessionState(
+      row.SecurityStamp, row.IsLockedOut, row.IsDemo, row.IsExpired, row.IsTenantMember, ParsePermissions(row.Permissions));
   }
 
   /// <summary>The user's role in a tenant and its permissions, for /api/auth/me. Null role: not an active member.</summary>
@@ -302,18 +304,21 @@ public sealed class UserStore
 }
 
 // What the queries above return, before the permissions string is split.
-internal sealed record SessionStateRow(byte[] SecurityStamp, bool IsLockedOut, bool IsTenantMember, string? Permissions);
+internal sealed record SessionStateRow(
+  byte[] SecurityStamp, bool IsLockedOut, bool IsDemo, bool IsExpired, bool IsTenantMember, string? Permissions);
 
 internal sealed record TenantRoleRow(string RoleName, string? Permissions);
 
 public sealed record PasswordChangeCandidate(int Id, string Email, string? PasswordHash, bool IsDemo);
 
-public sealed record SignInCandidate(int Id, string? PasswordHash, byte[] SecurityStamp, bool IsDemo, bool IsLockedOut);
+public sealed record SignInCandidate(int Id, string? PasswordHash, byte[] SecurityStamp, bool IsLockedOut);
 
 public sealed record UserSummary(int Id, string Email, string DisplayName, bool IsDemo);
 
 /// <param name="Permissions">What the user may do in the session's tenant (Permissions.cs). Empty without a tenant or an active membership.</param>
-public sealed record SessionState(byte[] SecurityStamp, bool IsLockedOut, bool IsTenantMember, IReadOnlySet<string> Permissions);
+/// <param name="IsExpired">A demo sandbox user past its ExpiresAt: the session ends, and cleanup removes the user.</param>
+public sealed record SessionState(
+  byte[] SecurityStamp, bool IsLockedOut, bool IsDemo, bool IsExpired, bool IsTenantMember, IReadOnlySet<string> Permissions);
 
 /// <param name="RoleName">The role's name, for display only. Never compare it in code; check a permission.</param>
 public sealed record TenantRole(string? RoleName, IReadOnlySet<string> Permissions);

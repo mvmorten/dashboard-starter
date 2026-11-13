@@ -44,7 +44,7 @@ public sealed class PasswordResetStore
   }
 
   /// <summary>
-  /// Stores a token for the account with this email, if there is one, it isn't the demo
+  /// Stores a token for the account with this email, if there is one, it isn't a demo
   /// account, and it's under the hourly cap. Returns who to email, or null to send nothing.
   /// </summary>
   /// <remarks>

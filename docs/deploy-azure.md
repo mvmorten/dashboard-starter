@@ -128,13 +128,11 @@ Then **Settings > Secrets and variables > Actions > Variables**, add these **rep
 | `AZURE_RESOURCE_GROUP` | `$RG` |
 | `AZURE_WEBAPP_NAME` | `$APP` |
 | `CANONICAL_HOST` | Leave unset for now (see step 6) |
-| `DEMO_ENABLED` | `true` for a public demo with a shared account; leave unset otherwise |
-| `DEMO_PASSWORD` | The demo account's password, at least 12 characters. Not a secret: the sign-in page shows it |
-| `DEMO_EMAIL` | Optional. The demo account's email; default `guest@example.com` |
+| `DEMO_ENABLED` | `true` for a public demo: the sign-in page gets "Try the demo", a private sandbox per visitor. Leave unset otherwise |
 | `EMAIL_ENABLED` | `true` to send password reset emails; leave unset for now (see step 7) |
 | `EMAIL_FROM` | The sender, for example `Dashboard Starter <noreply@notify.example.com>` (see step 7) |
 
-None of the variables are secret: they say where to deploy, not how to get in. The demo password is no exception: it's printed on the sign-in page on purpose. With the GitHub CLI it's quicker:
+None of the variables are secret: they say where to deploy, not how to get in. With the GitHub CLI it's quicker:
 
 ```bash
 gh secret set SQL_ADMIN_PASSWORD --env demo --body "$SQL_ADMIN_PASSWORD"
@@ -156,10 +154,9 @@ Merge anything to `main`. To redeploy the current `main` without a new commit, o
 2. Signs in to Azure (step 3) and opens the SQL firewall to the runner's IP address for the length of the job.
 3. Runs `src/Db migrate` with the admin login, retrying while a paused database wakes up.
 4. Runs `src/Db app-user`, which creates the API's login (or resets its password) with data access only.
-5. If `DEMO_ENABLED` is `true`, runs `src/Db demo`: the "Demo" and "Other Demo" tenants and the shared demo account, with `DEMO_PASSWORD`. It only changes the password when the variable changed, so people trying the demo stay signed in across deploys.
-6. Closes the firewall again, even if a step failed.
-7. Sets the app settings: the connection string (the API's login, not the admin), `CanonicalHost`, `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` (so the app sees HTTPS and each visitor's IP behind App Service's front end), where the Data Protection keys live, the demo account the sign-in page shows, and, if `EMAIL_ENABLED` is `true`, the sender and Resend key for password reset emails (step 7). With email on, it first checks the settings and the domain's DNS records, and stops if something is missing.
-8. Deploys the zip and waits for `/api/health` to report healthy **and** the commit it just deployed. Healthy alone could be the previous version, still answering while the new one starts.
+5. Closes the firewall again, even if a step failed.
+6. Sets the app settings: the connection string (the API's login, not the admin), `CanonicalHost`, `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` (so the app sees HTTPS and each visitor's IP behind App Service's front end), where the Data Protection keys live, `Demo__SandboxesEnabled` (`true` when `DEMO_ENABLED` is), and, if `EMAIL_ENABLED` is `true`, the sender and Resend key for password reset emails (step 7). With email on, it first checks the settings and the domain's DNS records, and stops if something is missing.
+7. Deploys the zip and waits for `/api/health` to report healthy **and** the commit it just deployed. Healthy alone could be the previous version, still answering while the new one starts.
 
 Then open `https://<APP>.azurewebsites.net`. The footer shows the build number and commit. If a deploy lands while a tab is open, the page notices on its next health check and offers a reload.
 

@@ -23,7 +23,6 @@ namespace DashboardStarter.Api.Members;
 /// The rules, all checked here and not only in the UI:
 /// <list type="bullet">
 /// <item>You can't change your own role or disable yourself.</item>
-/// <item>The shared demo account can't change members (it can look).</item>
 /// <item>A tenant never loses its last active member who can manage members, even when two
 /// admins demote each other at once (<see cref="Memberships"/>).</item>
 /// </list>
@@ -34,20 +33,17 @@ namespace DashboardStarter.Api.Members;
 public sealed class MembersController : ControllerBase
 {
   private readonly MemberStore _memberStore;
-  private readonly UserStore _userStore;
   private readonly SqlConnectionFactory _connectionFactory;
   private readonly IMemoryCache _cache;
   private readonly ILogger<MembersController> _logger;
 
   public MembersController(
     MemberStore memberStore,
-    UserStore userStore,
     SqlConnectionFactory connectionFactory,
     IMemoryCache cache,
     ILogger<MembersController> logger)
   {
     _memberStore = memberStore;
-    _userStore = userStore;
     _connectionFactory = connectionFactory;
     _cache = cache;
     _logger = logger;
@@ -107,17 +103,6 @@ public sealed class MembersController : ControllerBase
         statusCode: StatusCodes.Status400BadRequest,
         title: "That's you",
         detail: $"You can't {selfChange}. Ask another admin of this tenant.");
-    }
-
-    // Like changing its password: everyone shares the demo account, so it can look but not change.
-    UserSummary? actor = await _userStore.GetUserAsync(actorId, cancellationToken);
-    if (actor is null || actor.IsDemo)
-    {
-      _logger.LogInformation("Refused {Change} for user {MemberId} by the demo account {ActorId}.", changeDescription, userId, actorId);
-      return Problem(
-        statusCode: StatusCodes.Status403Forbidden,
-        title: "The demo account can't change members",
-        detail: "Everyone shares the demo account, so its member changes are turned off. The controls show what an admin sees.");
     }
 
     await using SqlConnection connection = await _connectionFactory.OpenAsync(cancellationToken);

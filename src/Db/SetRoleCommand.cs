@@ -39,8 +39,7 @@ internal static class SetRoleCommand
 
     if (user.IsDemo)
     {
-      throw new RunnerException(
-        $"{email} is a demo account. Its roles are defined in src/Db/Users/DemoAccountSetup.cs and set by the demo command and seed.");
+      throw new RunnerException(UserAccounts.DemoRefusal(email));
     }
 
     TenantRow tenantRow = await UserAccounts.FindTenantAsync(connection, transaction, tenant);

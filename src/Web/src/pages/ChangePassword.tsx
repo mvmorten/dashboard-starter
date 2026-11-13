@@ -26,8 +26,8 @@ export default function ChangePassword() {
       <>
         <h1>Change password</h1>
         <p className="notice">
-          Everyone shares the demo account, so its password can&apos;t be
-          changed.
+          Demo accounts don&apos;t have a password: yours is deleted when the
+          demo ends.
         </p>
       </>
     );

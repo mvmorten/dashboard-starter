@@ -14,12 +14,10 @@
 #   change@example.com   any tenant          a-long-enough-password
 #   capped@example.com   no tenant           a-long-enough-password
 #   expiry@example.com   no tenant           a-long-enough-password
-#   $DEMO_EMAIL          the demo account    $DEMO_PASSWORD
+# and demo sandboxes on (they are in Development), for a demo account to try.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 MAIL=${MAIL:-.dev-mail}
-DEMO_EMAIL=${DEMO_EMAIL:-guest@example.com}
-DEMO_PASSWORD=${DEMO_PASSWORD:-published-demo-pass}
 password=a-long-enough-password
 invalid_link='This reset link is invalid or has expired. Request a new one.'
 
@@ -61,7 +59,9 @@ if [ "${1:-}" = "expiry" ]; then
   exit 0
 fi
 
-echo "1. Forgot password answers the same for a real account, an unknown email, and the demo account"
+echo "1. Forgot password answers the same for a real account, an unknown email, and a demo account"
+expect "$(start_demo "$work/d")" 204
+DEMO_EMAIL=$(me_email "$work/d")
 before=$(mails)
 expect "$(forgot reset@example.com)" 204
 real=$(cat "$body")
@@ -121,9 +121,9 @@ expect "$(sign_in "$work/x" change@example.com changed-password-1)" 200
 # This session can still make changes: its antiforgery token is reissued with the new cookie.
 expect "$(change "$work/c1" changed-password-1 changed-password-2)" 204
 
-echo "8. The demo account can't change its password"
-expect "$(sign_in "$work/d" "$DEMO_EMAIL" "$DEMO_PASSWORD")" 200
-expect "$(change "$work/d" "$DEMO_PASSWORD" a-different-demo-password)" 403
+echo "8. A demo account can't set a password, so a sandbox can't become a permanent account"
+expect "$(change "$work/d" anything-at-all-here a-password-for-the-demo)" 403
+expect "$(json_field title)" "Not for demo accounts"
 
 echo "9. At most 3 emails per address per hour: the 4th request sends nothing"
 for attempt in 1 2 3 4; do

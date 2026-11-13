@@ -51,7 +51,7 @@ internal static class CreateUserCommand
     UserRow? existing = await UserAccounts.FindByEmailAsync(connection, transaction, email);
     if (existing is { IsDemo: true })
     {
-      throw new RunnerException(DemoAccountSetup.RefusalMessage(email));
+      throw new RunnerException(UserAccounts.DemoRefusal(email));
     }
 
     int userId;
