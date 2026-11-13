@@ -216,7 +216,8 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 | 4 | [The App Shell: A Sidebar, a Top Bar, and Three Dependencies](https://mvmorten.com/projects/dashboard-starter/the-app-shell) | [v0.4](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.4) | Published |
 | 5 | [Signing In: Our Own Auth, and the Deploy It Broke](https://mvmorten.com/projects/dashboard-starter/signing-in) | [v0.5](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.5) | Published |
 | 6 | [Password Reset: Tokens, Timing, and an Email Service on Its Way Out](https://mvmorten.com/projects/dashboard-starter/password-reset) | [v0.6](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.6) | Published |
-| 7 | Roles and permissions | v0.7 | Planned |
+| 7 | [Roles and Permissions: Check What, Not Who](https://mvmorten.com/projects/dashboard-starter/roles-and-permissions) | [v0.7](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.7) | Published |
+| 8 | The CRUD module | v0.8 | Planned |
 | ... | More to come | | |
 
 ## Getting started
