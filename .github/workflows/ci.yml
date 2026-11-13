@@ -439,9 +439,11 @@ jobs:
           grep -q '"emailEnabled":false' sign-in-info.json
 
           # With sandboxes off there's no endpoint and no cleanup service: a fork never gets an
-          # anonymous button that creates accounts unless it asks for one.
-          curl -sf -c off-jar -b off-jar -o /dev/null http://localhost:5081/api/auth/antiforgery
-          status=$(curl -s -o off.json -w '%{http_code}' -c off-jar -b off-jar -X POST \
+          # anonymous button that creates accounts unless it asks for one. Over (forwarded) HTTPS:
+          # Production's antiforgery cookie is Secure, so a plain HTTP request gets a 500.
+          https="-H X-Forwarded-Proto:https"
+          curl -sf $https -c off-jar -b off-jar -o /dev/null http://localhost:5081/api/auth/antiforgery
+          status=$(curl -s $https -o off.json -w '%{http_code}' -c off-jar -b off-jar -X POST \
             -H "X-XSRF-TOKEN: $(awk '$6 ~ /ds-xsrf$/ { print $7 }' off-jar)" http://localhost:5081/api/demo/sandbox)
           [ "$status" = "404" ]
           if grep -q 'Demo cleanup' api-prod.log; then
@@ -453,7 +455,6 @@ jobs:
           curl -sI http://localhost:5081/api/health | grep -qi '^referrer-policy: no-referrer'
 
           # Deployed cookies: __Host- names, Secure, HttpOnly where script mustn't read them.
-          https="-H X-Forwarded-Proto:https"
           curl -sf $https -D af.txt -c jar -b jar -o /dev/null http://localhost:5081/api/auth/antiforgery
           cat af.txt
           grep -qi '^set-cookie: __Host-ds-af=.*; secure; samesite=strict; httponly' af.txt
