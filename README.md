@@ -217,7 +217,8 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 | 5 | [Signing In: Our Own Auth, and the Deploy It Broke](https://mvmorten.com/projects/dashboard-starter/signing-in) | [v0.5](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.5) | Published |
 | 6 | [Password Reset: Tokens, Timing, and an Email Service on Its Way Out](https://mvmorten.com/projects/dashboard-starter/password-reset) | [v0.6](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.6) | Published |
 | 7 | [Roles and Permissions: Check What, Not Who](https://mvmorten.com/projects/dashboard-starter/roles-and-permissions) | [v0.7](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.7) | Published |
-| 8 | The CRUD module | v0.8 | Planned |
+| 8 | [Demo Sandboxes: A Private Copy for Every Visitor](https://mvmorten.com/projects/dashboard-starter/demo-sandboxes) | [v0.8](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.8) | Published |
+| 9 | The CRUD module | v0.9 | Planned |
 | ... | More to come | | |
 
 ## Getting started
