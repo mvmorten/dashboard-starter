@@ -1,6 +1,7 @@
 using System;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using DashboardStarter.Api.Demo;
 using DashboardStarter.Api.Hosting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -23,13 +24,20 @@ namespace DashboardStarter.Api.Auth;
 public sealed class AuthCookieEvents : CookieAuthenticationEvents
 {
   private readonly UserStore _userStore;
+  private readonly SandboxStore _sandboxes;
   private readonly IMemoryCache _cache;
   private readonly AuthOptions _options;
   private readonly ILogger<AuthCookieEvents> _logger;
 
-  public AuthCookieEvents(UserStore userStore, IMemoryCache cache, IOptions<AuthOptions> options, ILogger<AuthCookieEvents> logger)
+  public AuthCookieEvents(
+    UserStore userStore,
+    SandboxStore sandboxes,
+    IMemoryCache cache,
+    IOptions<AuthOptions> options,
+    ILogger<AuthCookieEvents> logger)
   {
     _userStore = userStore;
+    _sandboxes = sandboxes;
     _cache = cache;
     _options = options.Value;
     _logger = logger;
@@ -59,15 +67,25 @@ public sealed class AuthCookieEvents : CookieAuthenticationEvents
     }
 
     string cacheKey = SessionCache.Key(userId.Value, tenantId);
-    SessionState? state = await _cache.GetOrCreateAsync(cacheKey, entry =>
+    SessionState? state = await _cache.GetOrCreateAsync(cacheKey, async entry =>
     {
       entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(_options.SessionCheckSeconds);
-      return _userStore.GetSessionStateAsync(userId.Value, tenantId, context.HttpContext.RequestAborted);
+      SessionState? fresh = await _userStore.GetSessionStateAsync(userId.Value, tenantId, context.HttpContext.RequestAborted);
+
+      // A demo sandbox in use stays alive (SandboxStore.KeepAliveAsync). Here, inside the
+      // cache, it's written at most once per SessionCheckSeconds, not on every request.
+      if (fresh is { IsDemo: true, IsExpired: false })
+      {
+        await _sandboxes.KeepAliveAsync(userId.Value, context.HttpContext.RequestAborted);
+      }
+
+      return fresh;
     });
 
     string? reason = state switch
     {
       null => "the user no longer exists",
+      { IsExpired: true } => "the demo sandbox has expired",
       { IsLockedOut: true } => "the account is locked out",
       _ when !CryptographicOperations.FixedTimeEquals(state.SecurityStamp, stamp) => "the security stamp changed",
       { IsTenantMember: false } => "the tenant membership is no longer active",

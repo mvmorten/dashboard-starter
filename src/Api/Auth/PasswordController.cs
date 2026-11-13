@@ -83,10 +83,10 @@ public sealed class PasswordController : ControllerBase
     ResetRecipient? recipient = await _resetStore.IssueAsync(
       request.Email.Trim(), tokenHash, _options.TokenLifetimeSeconds, _options.MaxEmailsPerHour, cancellationToken);
 
-    // Unknown address, the demo account, or over the hourly cap. Not told apart, here or in the answer.
+    // Unknown address, a demo account, or over the hourly cap. Not told apart, here or in the answer.
     if (recipient is null)
     {
-      _logger.LogInformation("Password reset requested; no email sent (no such account, the demo account, or over the hourly cap).");
+      _logger.LogInformation("Password reset requested; no email sent (no such account, a demo account, or over the hourly cap).");
       return NoContent();
     }
 
@@ -159,12 +159,13 @@ public sealed class PasswordController : ControllerBase
       return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Not signed in");
     }
 
+    // A demo sandbox never gets a password, so it can't outlive its expiry as a real account.
     if (user.IsDemo)
     {
       return Problem(
         statusCode: StatusCodes.Status403Forbidden,
-        title: "Not for the demo account",
-        detail: "The demo account's password is shared, so it can't be changed.");
+        title: "Not for demo accounts",
+        detail: "Demo accounts can't have a password: they're removed when the demo ends.");
     }
 
     if (user.PasswordHash is null

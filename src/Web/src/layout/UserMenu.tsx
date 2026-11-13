@@ -8,7 +8,7 @@ import { KeyIcon, SignOutIcon, UserIcon } from "./icons";
 import { focusMenuOnOpen, moveMenuFocus } from "./menuKeyboard";
 
 // The account button at the right of the top bar: who you are, the theme, changing your
-// password (not for the shared demo account), and sign out.
+// password (not for demo accounts, which have none), and sign out.
 // The theme button moved in here from the top bar, so on a phone the bar still holds the
 // same number of buttons as before sign-in existed.
 export default function UserMenu() {
@@ -57,6 +57,9 @@ export default function UserMenu() {
           <p className="user-name">{me.user.displayName}</p>
           <p className="user-email">{me.user.email}</p>
           {me.role && <p className="user-email">{me.role} in this tenant</p>}
+          {me.user.isDemo && (
+            <p className="user-email">Your own demo. Signing out ends it.</p>
+          )}
         </div>
         <ul>
           <li>

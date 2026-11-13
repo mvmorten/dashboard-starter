@@ -6,7 +6,7 @@ namespace DashboardStarter.Db.Passwords;
 /// </summary>
 /// <remarks>
 /// Lives in the Db project because both the API (sign-in) and the Db runner (create-user,
-/// set-password, demo) need it, and the API already references this project for its list of
+/// set-password, the local account in seed) need it, and the API already references this project for its list of
 /// migrations. The runner never depends on the API.
 /// </remarks>
 public interface IPasswordHasher

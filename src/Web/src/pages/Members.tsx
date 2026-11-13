@@ -15,7 +15,7 @@ import NoAccess from "./NoAccess";
 
 // The current tenant's members. Everyone with members.view sees the list; members.manage adds
 // a role picker and a disable button per member. The API enforces every rule shown here (not
-// yourself, not the demo account, never the tenant's last admin); the page only mirrors them.
+// yourself, never the tenant's last admin); the page only mirrors them.
 export default function Members() {
   usePageTitle("Members");
   const { data: me } = useMe();
@@ -44,7 +44,6 @@ export default function Members() {
 
   const tenant = me ? currentTenant(me) : null;
   const manage = can(me, Permissions.membersManage);
-  const isDemo = me?.user.isDemo ?? false;
 
   async function apply(next: MemberChange) {
     setError(null);
@@ -62,9 +61,7 @@ export default function Members() {
   const controls: ControlsContext = {
     me,
     roles: members.data?.roles ?? [],
-    // The demo account sees an admin's controls, switched off: it's shared, so the API
-    // refuses its changes anyway.
-    enabled: manage && !isDemo && !change.isPending,
+    enabled: manage && !change.isPending,
     manage,
     apply,
   };
@@ -76,13 +73,6 @@ export default function Members() {
         Everyone in {tenant?.name ?? "this tenant"}, and their role here. A
         person can have a different role in each tenant they belong to.
       </p>
-
-      {manage && isDemo && (
-        <p className="notice">
-          Everyone shares the demo account, so it can&apos;t change members.
-          These are the controls an admin sees.
-        </p>
-      )}
 
       <div role="alert" className="form-error">
         {error}
