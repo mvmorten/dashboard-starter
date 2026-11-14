@@ -47,15 +47,15 @@ expect "$(status "$work/none" "$BASE/api/members")" 401
 
 echo "2. /me lists each role's permissions in the current tenant"
 expect "$(sign_in "$work/boss" boss@example.com $PW)" 200
-expect "$(json '.permissions | join(",")')" "members.manage,members.view"
+expect "$(json '.permissions | join(",")')" "customers.edit,customers.view,members.manage,members.view"
 expect "$(json .role)" Admin
 expect "$(sign_in "$work/mem" mem@example.com $PW)" 200
-expect "$(json '.permissions | join(",")')" "members.view"
+expect "$(json '.permissions | join(",")')" "customers.edit,customers.view,members.view"
 acme=$(tenant_id "$ACME")
 globex=$(tenant_id "Globex Industries")
 expect "$(json .currentTenantId)" "$acme"
 expect "$(sign_in "$work/ro" ro@example.com $PW)" 200
-expect "$(json '.permissions | join(",")')" "members.view"
+expect "$(json '.permissions | join(",")')" "customers.view,members.view"
 expect "$(json .role)" Read-only
 expect "$(sign_in "$work/boss2" boss2@example.com $PW)" 200
 
@@ -93,7 +93,7 @@ expect "$(set_role "$work/mem" ro@example.com Read-only)" 403
 expect "$(set_role "$work/boss" mem@example.com Admin)" 200
 expect "$(set_role "$work/mem" ro@example.com Read-only)" 200
 expect "$(status "$work/mem" "$BASE/api/auth/me")" 200
-expect "$(json '.permissions | join(",")')" "members.manage,members.view"
+expect "$(json '.permissions | join(",")')" "customers.edit,customers.view,members.manage,members.view"
 echo "   From the Db runner (set-role): within the session check window"
 $DB set-role --email mem@example.com --tenant "$ACME" --role Member > /dev/null
 sleep 3

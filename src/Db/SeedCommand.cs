@@ -44,14 +44,14 @@ internal static class SeedCommand
     Console.WriteLine("Seed data (sql/seed):");
     foreach (SqlScript script in ScriptCatalog.Seed)
     {
-      string? failure = await ScriptExecutor.TryRunAsync(connection, script, recordInJournal: false);
-      if (failure is not null)
+      ScriptResult result = await ScriptExecutor.TryRunAsync(connection, script, recordInJournal: false);
+      if (result.Failure is not null)
       {
-        ScriptExecutor.PrintResult("failed", script.Name, failure);
+        ScriptExecutor.PrintResult("failed", script.Name, result.Failure);
         return 1;
       }
 
-      ScriptExecutor.PrintResult("applied", script.Name);
+      ScriptExecutor.PrintResult("applied", script.Name, result.Detail);
     }
 
     Console.WriteLine();

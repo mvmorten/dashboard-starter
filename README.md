@@ -4,7 +4,7 @@ An opinionated, open-source dashboard starter for building real business apps wi
 
 Clone it, rename it, and start on your actual product instead of rebuilding auth, layout, and plumbing for the tenth time.
 
-**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Click **Try the demo** on the sign-in page and you get your own private sandbox: an account and two tenants with sample members, which nobody else can see. You're an Admin in "Demo", so everything there works for real, and Read-only in "Other Demo": switch between them at the top to see the same person with different permissions. A sandbox is deleted after 2 hours without use, 24 hours at most, or when you sign out.
+**Live demo:** [dashboard.mvmorten.com](https://dashboard.mvmorten.com). It's deployed from `main` on every merge, so it always shows the latest step. Click **Try the demo** on the sign-in page and you get your own private sandbox: an account and two tenants with sample members and customers, which nobody else can see. You're an Admin in "Demo", so everything there works for real, and Read-only in "Other Demo": switch between them at the top to see the same person with different permissions. A sandbox is deleted after 2 hours without use, 24 hours at most, or when you sign out.
 
 > **Status:** Just getting started. This project is being built in public, and every step is documented in a blog series. Expect the code to change quickly while the foundation takes shape.
 
@@ -44,7 +44,7 @@ This repo aims to be:
 - **One account, many tenants.** A person signs in once and can belong to several tenants. Nobody wants a separate account for every organization they work with.
 - **Global tables** have no `TenantId`: `Users`, `Tenants`, `TenantUsers`, and the role definitions (`Roles`, `RolePermissions`). Your account, email (unique across the system), password hash, and lockout state belong to you, not to any one tenant.
 - **Everything else is tenant-owned**: it carries a `TenantId`, the `TenantId` leads its indexes, and every query filters by the current tenant.
-- **Row-Level Security is the safety net.** The API puts the current tenant in `SESSION_CONTEXT` on each connection, and a security policy filters every tenant-owned table. A query that forgets its `WHERE TenantId = @TenantId` still can't see another tenant's rows.
+- **Row-Level Security is the safety net.** The API puts the current tenant in `SESSION_CONTEXT` on each connection, and a security policy filters every tenant-owned table. A query that forgets its `WHERE TenantId = @TenantId` still can't see another tenant's rows, or write to them. See "Row-Level Security" below.
 - **Roles are per tenant.** You can be an admin in one tenant and read-only in another: each membership in `TenantUsers` has exactly one `RoleId`. See "Roles and permissions" below.
 - **Switching tenants.** With one tenant you go straight in. With several, you land in the one you used last and can switch from the top bar. The auth cookie holds your user and current tenant; switching checks your membership and issues a new cookie.
 - **Removing access works right away.** Memberships can be disabled per tenant, and the API rechecks membership on each request, cached for at most a minute (`Auth:SessionCheckSeconds`). The same check ends every session of a user whose password changed or who is locked out.
@@ -57,11 +57,11 @@ This repo aims to be:
 
   | Role | Permissions |
   | --- | --- |
-  | Admin | `members.view`, `members.manage` |
-  | Member | `members.view` |
-  | Read-only | `members.view` |
+  | Admin | `members.view`, `members.manage`, `customers.view`, `customers.edit` |
+  | Member | `members.view`, `customers.view`, `customers.edit` |
+  | Read-only | `members.view`, `customers.view` |
 
-  Member and Read-only are the same until there's data to change. The CRUD module adds its own permissions (an `edit` for its records) and grants them to Admin and Member only.
+  The CRUD module (Customers) is where Member and Read-only differ: both can look, only Member and Admin can change. `customers.edit` covers delete too; a fork that wants delete separate adds `customers.delete` with one migration (`sql/migrations/0014_customer_permissions.sql` shows how).
 - **One role per membership.** It's a `RoleId` column on `TenantUsers` rather than a separate table, so "exactly one role in each tenant" is kept by the schema itself. New memberships get Member unless you say otherwise.
 - **The API checks every request.** Controllers say `[Authorize(Policy = Permissions.MembersManage)]`, and one small handler we own (`src/Api/Auth/PermissionHandler.cs`) answers it. The permissions come from the database with the per-request session check (cached for at most `Auth:SessionCheckSeconds`), never from the cookie, so a changed role or a disabled membership takes effect within a minute, and usually on the very next request when it's changed on the Members page. Not signed in is a 401; signed in without the permission is a 403.
 - **The UI only hides things.** `/api/auth/me` returns your permissions in the current tenant, and one helper, `can(permission)` (`src/Web/src/auth/permissions.ts`), hides menu items and buttons you can't use. That's a convenience; the API is the check.
@@ -72,11 +72,12 @@ This repo aims to be:
 
 A public demo needs a way in without an account. Step 7 used one shared account with a published password, which meant switching off anything a visitor could change, and every visitor saw what the last one typed. Now each visitor gets their own sandbox (`src/Api/Demo`).
 
-- **"Try the demo"** posts to an anonymous endpoint (`POST /api/demo/sandbox`) that creates, in one transaction, a user and two tenants ("Demo", where they're Admin, and "Other Demo", where they're Read-only), plus four sample members who are rows of this sandbox only. Then it signs them in with the normal cookie. What a sandbox contains is defined in one file, `SandboxDefinition.cs`.
+- **"Try the demo"** posts to an anonymous endpoint (`POST /api/demo/sandbox`) that creates, in one transaction, a user and two tenants ("Demo", where they're Admin, and "Other Demo", where they're Read-only), plus four sample members who are rows of this sandbox only, and sample customers in each tenant (30 businesses in "Demo", 27 people in "Other Demo": more than a page each, and different, so switching tenants shows they're separate). Then it signs them in with the normal cookie. What a sandbox contains is defined in one file, `SandboxDefinition.cs`.
 - **Demo rows are marked.** `Users.IsDemo` and `Tenants.IsDemo`, and an `ExpiresAt` on both. A check constraint allows `ExpiresAt` on demo rows only, so a real tenant or user can never expire. Sandbox addresses are on `demo.invalid`, a domain reserved so it can't belong to anyone.
 - **A sandbox can't become a real account.** It has no password and can't get one: change password, password reset, and the Db runner's `set-password` all refuse demo users, and there's no way to change an email. Inside its own tenants, though, it's a normal account: the visitor can change members' roles and disable them.
 - **Expiry.** A sandbox lasts 2 hours without use and 24 hours at most (`Demo:SandboxIdleMinutes`, `Demo:SandboxHours`). Each session check, at most once a minute, moves the expiry forward; signing out ends it at once, since there's no password to come back with. An expired sandbox's session ends on its next request.
 - **Limits on the anonymous endpoint.** The usual antiforgery token, 10 new sandboxes per client address per hour (ASP.NET Core's built-in rate limiter, per IPv4 address or IPv6 /64, behind App Service's forwarded headers), and at most 500 active at once, after which the button says "The demo is busy, try again later." The idle expiry is what keeps the cap honest: filling it takes steady work rather than one burst, because a sandbox nobody uses is gone in two hours.
+- **A row cap.** A demo tenant holds at most 200 customers (`Demo:MaxCustomersPerTenant`), and deleted ones count, so adding and deleting in a loop can't grow the table. It's checked in the same transaction as the insert, under a lock on the tenant row, and past it the API answers 422 with a plain message. Real tenants have no cap.
 - **Cleanup is background work.** A `BackgroundService` in the API (`SandboxCleanupService`) runs every hour, and once at startup, on a built-in `PeriodicTimer`. It deletes expired demo tenants and users and every row they own, logging each run. With several App Service instances, `sp_getapplock` lets one clean at a time. It works on each tenant's rows with that tenant set in `SESSION_CONTEXT`, as a request does, so Row-Level Security applies to it too: no login is exempt.
 - **Adding a table?** If it has a `TenantId` column, or a foreign key to `Users` or `Tenants`, add it to `SandboxCleanup.TenantRows` or `SandboxCleanup.UserRows`. With sandboxes on, the API refuses to start until you do, naming the column, and CI proves that check works.
 - **Off by default.** A fork doesn't get an anonymous button that creates accounts unless it asks: with `Demo:SandboxesEnabled` false, the button is hidden, the endpoint is a 404, and the cleanup service doesn't run. Development turns it on; the deploy turns it on when the repo variable `DEMO_ENABLED` is `true`.
@@ -87,9 +88,37 @@ A public demo needs a way in without an account. Step 7 used one shared account 
 - **Inline SQL, parameters only.** Queries live in the C# that uses them, written as raw string literals (`"""`). Values always go in as parameters, never with `$` string interpolation. Dynamic pieces, like a sortable column, come only from a fixed list in code, never straight from user input.
 - **Stored procedures only where they help**, such as set-based batch work or heavy reporting. See the FAQ.
 - **Keys:** `int` identity on every table, `bigint` on tables that grow without limit (audit log, events). Links that must be unguessable, like password resets and invites, use random tokens, not IDs.
-- **Standard columns** on every tenant-owned table: `TenantId`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, `UpdatedBy` (`datetime2`, UTC), and `RowVersion`.
-- **Optimistic concurrency with `rowversion`.** Every read returns the row's version. Every update includes it (`WHERE Id = @Id AND RowVersion = @RowVersion`). If someone else saved first, the API returns `409 Conflict` instead of silently overwriting their change. Always write `rowversion`, never `timestamp`: same type, but `timestamp` is the old name and looks like a date.
+- **Standard columns** on every tenant-owned table. `Customers` (`sql/migrations/0013_customers.sql`) is the one to copy:
+
+  | Column | |
+  | --- | --- |
+  | `TenantId` | Whose row it is. Leads every index except the primary key, and Row-Level Security filters on it. |
+  | `CreatedAt`, `CreatedBy` | When and by whom it was made (`datetime2`, UTC; a user id). |
+  | `UpdatedAt`, `UpdatedBy` | The last change. |
+  | `DeletedAt`, `DeletedBy` | Soft delete: `NULL` until the row is deleted. |
+  | `RowVersion` | `rowversion`, for optimistic concurrency. |
+
+  The `*By` columns are `NULL` when no person did it (a data migration, an import). They're always set from the signed-in user, never from the request.
+- **Soft delete.** Deleting sets `DeletedAt` and `DeletedBy`; the row stays, for the audit log step. Every app query says `AND DeletedAt IS NULL` explicitly, updates included, rather than reading through a view that hides deleted rows: you can see it's there in every query, and CI proves it by calling every endpoint on a deleted row. A deleted row is a 404 everywhere. Filtered indexes (`WHERE DeletedAt IS NULL`) keep deleted rows out of the indexes the list reads. (Deleting a demo sandbox removes its rows for real; that's cleanup, not the app.)
+- **Optimistic concurrency with `rowversion`.** Every read returns the row's version, base64 in JSON. Every change and delete sends it back in the request body, and the `UPDATE` includes it: `WHERE Id = @Id AND TenantId = @TenantId AND RowVersion = @RowVersion AND DeletedAt IS NULL`, with `OUTPUT inserted.RowVersion`. Zero rows changed means one of two things, and the API tells them apart: the row is gone or deleted (`404`), or someone else saved first (`409 Conflict`). A 409 is ProblemDetails with the current `rowVersion` and the `current` record as extensions, so the client can show what changed and merge without asking again. 409 means only "someone else changed this"; other refusals use other codes. Always write `rowversion`, never `timestamp`: same type, but `timestamp` is the old name and looks like a date.
 - **History:** system-versioned temporal tables keep every past version of a row, so the audit log doesn't depend on triggers.
+
+### Row-Level Security
+
+- **One script holds the policy and its predicate**, `sql/programmable/Security.fn_TenantAccessPredicate.sql`. It drops the policy, alters the function, and creates the policy again, listing every tenant-owned table with a filter predicate (reads, and which rows an `UPDATE` or `DELETE` can find) and two block predicates (no inserting into, or moving a row to, another tenant). The runner runs it in one transaction, so no table is ever unprotected.
+- **It fails closed.** No tenant in `SESSION_CONTEXT`, no rows: a query sees nothing, an `INSERT` is refused, an `UPDATE` changes nothing.
+- **Nobody is exempt**, not the API's login, not the admin login the Db runner uses. Work that isn't a request sets the tenant itself: the demo sandbox cleanup works on each tenant's rows in that tenant's context, and so does the Db runner (below).
+- **It's the safety net, not the filter.** Queries still say `WHERE TenantId = @TenantId`, and the policy doesn't hide soft-deleted rows (`AND DeletedAt IS NULL` does).
+- **Adding a tenant-owned table?** Add its three lines to the policy, and add it to `SandboxCleanup.TenantRows` (`src/Api/Demo/SandboxCleanup.cs`). CI fails if a table with a `TenantId` column is missing from the policy. `TenantUsers` is the one exception: a global table that happens to have a `TenantId`.
+- **Data migrations on a tenant-owned table start with `-- for-each-tenant`.** Written the obvious way, `UPDATE dbo.Customers SET ...` runs with no tenant set, so Row-Level Security shows it no rows, and it "succeeds" having changed nothing. Nothing fails, so nothing tells you. With `-- for-each-tenant` as its first line, the runner runs the migration once per tenant, with that tenant in `SESSION_CONTEXT`, all in one transaction (`TenantSession.ForEachTenantAsync` in `src/Db/Tenants`): if it fails in any tenant, it's rolled back in all of them, and the error names the tenant. Keep schema changes in their own migration before it, and filter by the tenant you're in:
+
+  ```sql
+  -- for-each-tenant
+  UPDATE dbo.Customers
+  SET Status = 'Inactive'
+  WHERE TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS int)
+    AND Status = 'Dormant';
+  ```
 
 ### Schema scripts
 
@@ -111,11 +140,27 @@ A public demo needs a way in without an account. Step 7 used one shared account 
 
   The runner records each migration in a `SchemaVersions` table with a hash of its contents, skips ones already applied, and fails loudly if an applied script was edited. The same command runs on your laptop, in CI, and in deployment.
 - **The API never changes the database.** On startup it only checks that the schema is current. If it isn't, it refuses to start and tells you which command to run.
-- **Running a copied query in SSMS?** Set the tenant first, or Row-Level Security will return no rows:
+- **Running a copied query in SSMS?** Set the tenant first, or Row-Level Security will return no rows (even as `sa`):
 
   ```sql
   EXEC sp_set_session_context @key = N'TenantId', @value = 1;
   ```
+
+## The CRUD example: Customers
+
+Customers is the sample module: the pattern to copy for your own tenant-owned records, from the table to the API. Each layer is one place: the table in `sql/migrations/0013_customers.sql`, the SQL in `src/Api/Customers/CustomerStore.cs`, the endpoints in `CustomersController.cs`, the field rules in `CustomerValidation.cs`.
+
+| Endpoint | Needs | |
+| --- | --- | --- |
+| `GET /api/customers?search=&page=` | `customers.view` | 25 a page, sorted by name then id, with the total. `search` matches the start of a name or email; `%`, `_` and `[` match only themselves. |
+| `GET /api/customers/{id}` | `customers.view` | One customer, with its `rowVersion`. |
+| `POST /api/customers` | `customers.edit` | `201` with the new customer. |
+| `PUT /api/customers/{id}` | `customers.edit` | The fields and the `rowVersion` you loaded. `200`, `404`, or `409` with the current record. |
+| `DELETE /api/customers/{id}` | `customers.edit` | Soft delete; the `rowVersion` goes in the body. `204`, `404`, or `409`. |
+
+- **Validation is on the server**: `400` with ProblemDetails `errors` keyed by field (`name`, `email`, ...). Text is trimmed, an empty optional field is stored as `NULL`, and the lengths are the column lengths. Shared rules for the front end come with the forms step.
+- **Email isn't unique.** Two customers can share an address (a family, a shared inbox). User accounts are different: `Users.Email` is unique, because it's how you sign in.
+- **Not yet:** sortable columns and filters (the data grid step), restoring deleted customers and history (the audit log step).
 
 ## Code conventions
 
@@ -177,7 +222,7 @@ The goal is the 80% every dashboard app needs on day one:
 - [x] App shell: sidebar navigation, top bar with tenant switcher, responsive layout, light and dark themes
 - [x] Authentication: sign in and sign out, lockout, and a private demo sandbox for every visitor
 - [x] Password reset and change password
-- [ ] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
+- [x] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
 - [x] Users, roles, and permissions, enforced on both API and UI
 - [ ] A reusable data grid with server-side paging, sorting, and filtering
 - [ ] CRUD example module showing the end-to-end pattern, including edit conflicts
@@ -217,7 +262,8 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 | 5 | [Signing In: Our Own Auth, and the Deploy It Broke](https://mvmorten.com/projects/dashboard-starter/signing-in) | [v0.5](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.5) | Published |
 | 6 | [Password Reset: Tokens, Timing, and an Email Service on Its Way Out](https://mvmorten.com/projects/dashboard-starter/password-reset) | [v0.6](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.6) | Published |
 | 7 | [Roles and Permissions: Check What, Not Who](https://mvmorten.com/projects/dashboard-starter/roles-and-permissions) | [v0.7](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.7) | Published |
-| 8 | The CRUD module | v0.8 | Planned |
+| 8 | Demo sandboxes | v0.8 | Planned |
+| 9 | The CRUD module | v0.9 | Planned |
 | ... | More to come | | |
 
 ## Getting started
@@ -327,7 +373,7 @@ npm run format:check         # Prettier (npm run format to fix)
 npm run build                # type-check and build
 ```
 
-CI also runs the API against a real SQL Server and checks sign-in end to end with curl: wrong passwords, lockout, antiforgery, switching tenants, and sessions ending after a password change. The script is [`.github/scripts/auth-checks.sh`](.github/scripts/auth-checks.sh). A second script, [`.github/scripts/password-checks.sh`](.github/scripts/password-checks.sh), does the same for password reset and change password: one answer for every address, emails only to real accounts (read from `.dev-mail/`), links that work once and expire, sessions that end, the hourly email cap, and the password rules. A third, [`.github/scripts/sandbox-checks.sh`](.github/scripts/sandbox-checks.sh), covers demo sandboxes: what one contains, that two can't see each other, expiry, cleanup removing exactly a sandbox's rows, and the cleanup lock. CI also checks the sandbox limits, that cleanup knows every table, and the upgrade from step 7's shared demo account. They all run locally too (see the comments at their tops).
+CI also runs the API against a real SQL Server and checks sign-in end to end with curl: wrong passwords, lockout, antiforgery, switching tenants, and sessions ending after a password change. The script is [`.github/scripts/auth-checks.sh`](.github/scripts/auth-checks.sh). A second script, [`.github/scripts/password-checks.sh`](.github/scripts/password-checks.sh), does the same for password reset and change password: one answer for every address, emails only to real accounts (read from `.dev-mail/`), links that work once and expire, sessions that end, the hourly email cap, and the password rules. A third, [`.github/scripts/sandbox-checks.sh`](.github/scripts/sandbox-checks.sh), covers demo sandboxes: what one contains, that two can't see each other, expiry, cleanup removing exactly a sandbox's rows, and the cleanup lock. [`.github/scripts/customer-checks.sh`](.github/scripts/customer-checks.sh) covers the Customers API: each role's permissions, validation, paging and search escaping, 409 with the current record, soft delete on every endpoint, tenant isolation, and the demo row cap. [`.github/scripts/rls-checks.sh`](.github/scripts/rls-checks.sh) checks Row-Level Security straight in SQL Server: the policy covers every table with a `TenantId`, no tenant means no rows, and one tenant can't read or write another's, as the API's login and as the admin. CI also checks the sandbox limits, that cleanup knows every table, the upgrade from step 7's shared demo account and from step 8, and that `-- for-each-tenant` data migrations reach every tenant. They all run locally too (see the comments at their tops).
 
 ### Security checks
 
