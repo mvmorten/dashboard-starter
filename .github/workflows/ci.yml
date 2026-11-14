@@ -125,13 +125,6 @@ jobs:
           echo 'a-long-enough-password' | $db create-user --email mem@example.com --name "Mem Example" --tenant "Globex Industries" --password-stdin
           echo 'a-long-enough-password' | $db create-user --email ro@example.com --name "Ro Example" --tenant "Acme Corporation" --role read-only --password-stdin
 
-          # For the customer checks (customer-checks.sh): one user per role, and cmem in a second
-          # tenant for the isolation checks.
-          echo 'a-long-enough-password' | $db create-user --email cadmin@example.com --name "Customer Admin" --tenant "Acme Corporation" --role Admin --password-stdin
-          echo 'a-long-enough-password' | $db create-user --email cmem@example.com --name "Customer Member" --tenant "Acme Corporation" --password-stdin
-          echo 'a-long-enough-password' | $db create-user --email cmem@example.com --name "Customer Member" --tenant "Globex Industries" --password-stdin
-          echo 'a-long-enough-password' | $db create-user --email cro@example.com --name "Customer Reader" --tenant "Acme Corporation" --role Read-only --password-stdin
-
           # For the password reset checks (password-checks.sh).
           echo 'a-long-enough-password' | $db create-user --email reset@example.com --name "Reset Example" --tenant "Acme Corporation" --password-stdin
           echo 'a-long-enough-password' | $db create-user --email change@example.com --name "Change Example" --tenant "Acme Corporation" --password-stdin
@@ -279,6 +272,15 @@ jobs:
       # search with LIKE's wildcards taken literally, 409 with the current record on a stale
       # RowVersion, soft delete (gone from every endpoint, row kept), tenant isolation, and the
       # demo row cap (200, deleted rows counted; real tenants uncapped).
+      # After the role checks on purpose: they count Acme's admins, and cadmin would be one more.
+      - name: Create the customer check users
+        run: |
+          db="dotnet run --no-build --configuration Release --project src/Db --"
+          echo 'a-long-enough-password' | $db create-user --email cadmin@example.com --name "Customer Admin" --tenant "Acme Corporation" --role Admin --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email cmem@example.com --name "Customer Member" --tenant "Acme Corporation" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email cmem@example.com --name "Customer Member" --tenant "Globex Industries" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email cro@example.com --name "Customer Reader" --tenant "Acme Corporation" --role Read-only --password-stdin
+
       - name: Customer checks
         env:
           ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
