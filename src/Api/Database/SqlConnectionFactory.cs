@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using DashboardStarter.Api.Auth;
-using Dapper;
+using DashboardStarter.Db.Tenants;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.SqlClient;
 
@@ -104,9 +104,8 @@ public sealed class SqlConnectionFactory
     await SetSessionTenantAsync(connection, tenantId.Value, cancellationToken);
   }
 
-  private static async Task SetSessionTenantAsync(SqlConnection connection, int tenantId, CancellationToken cancellationToken)
+  private static Task SetSessionTenantAsync(SqlConnection connection, int tenantId, CancellationToken cancellationToken)
   {
-    const string sql = "EXEC sys.sp_set_session_context @key = N'TenantId', @value = @TenantId, @read_only = 1;";
-    await connection.ExecuteAsync(new CommandDefinition(sql, new { TenantId = tenantId }, cancellationToken: cancellationToken));
+    return TenantSession.SetAsync(connection, null, tenantId, readOnly: true, cancellationToken);
   }
 }
