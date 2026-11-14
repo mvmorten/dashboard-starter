@@ -46,7 +46,9 @@
   font-weight: 600;
 }
 
-.field input {
+.field input,
+.field select,
+.field textarea {
   /* 16 px or more, or iOS zooms in when the field gets focus. */
   font: inherit;
   font-size: max(1rem, 16px);
@@ -59,6 +61,10 @@
 }
 
 /* Said before the input, so it's read before you start typing (and linked with aria-describedby). */
+.field textarea {
+  resize: vertical;
+}
+
 .field-hint {
   margin: 0;
   color: var(--muted);

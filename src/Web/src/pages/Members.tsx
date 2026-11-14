@@ -3,6 +3,7 @@ import { ApiError } from "../api";
 import { Permissions, can } from "../auth/permissions";
 import { currentTenant, type Me } from "../auth/me";
 import { useMe } from "../auth/useMe";
+import { formatUtc } from "../format";
 import { useMediaQuery } from "../layout/useMediaQuery";
 import { usePageTitle } from "../layout/usePageTitle";
 import type { Member, Role } from "../members/members";
@@ -106,7 +107,7 @@ function MemberTable({
 }) {
   return (
     <div className="table-scroll">
-      <table className="members-table">
+      <table className="data-table">
         <thead>
           <tr>
             <th scope="col">Member</th>
@@ -127,15 +128,13 @@ function MemberTable({
                 <MemberName member={member} controls={controls} />
                 <span className="member-email">{member.email}</span>
               </th>
-              <td className="member-nowrap">
+              <td className="nowrap">
                 <RoleControl member={member} controls={controls} />
               </td>
               <td>
                 <StatusBadge member={member} />
               </td>
-              <td className="member-nowrap">
-                {formatSignIn(member.lastSignInAt)}
-              </td>
+              <td className="nowrap">{formatSignIn(member.lastSignInAt)}</td>
               {controls.manage && (
                 <td>
                   <StatusButton member={member} controls={controls} />
@@ -157,7 +156,7 @@ function MemberCards({
   controls: ControlsContext;
 }) {
   return (
-    <ul className="member-cards">
+    <ul className="card-list">
       {members.map((member) => (
         <li key={member.userId} className="member-card">
           <div className="member-card-head">
@@ -282,14 +281,5 @@ function StatusBadge({ member }: { member: Member }) {
 }
 
 function formatSignIn(value: string | null): string {
-  if (!value) {
-    return "Never";
-  }
-
-  // The API sends UTC without a zone marker (datetime2), so add one before converting.
-  const utc = /[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`;
-  return new Date(utc).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  return value ? formatUtc(value) : "Never";
 }

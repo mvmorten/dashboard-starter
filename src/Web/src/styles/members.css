@@ -1,20 +1,8 @@
 /* The Members page. Phone first: one card per member. From 48rem (Members.tsx switches with
-   the same media query), a table. No grid library: that's its own step. */
-
-.member-cards {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
+   the same media query), a table. The list and table themselves are in lists.css. */
 
 .member-card {
   padding: var(--space-3) var(--space-4);
-}
-
-.member-card + .member-card {
-  border-top: 1px solid var(--border);
 }
 
 .member-card-head {
@@ -84,46 +72,8 @@
   white-space: nowrap;
 }
 
-/* If the table is still wider than its space, it scrolls here, not the page. */
-.table-scroll {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.members-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.members-table th,
-.members-table td {
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  vertical-align: middle;
-}
-
-.members-table thead th {
-  color: var(--muted);
-  font-weight: 600;
-  border-bottom: 1px solid var(--border);
-}
-
-.members-table tbody tr + tr {
-  border-top: 1px solid var(--border);
-}
-
-.members-table tbody th {
-  font-weight: 600;
-}
-
 /* The email sits under the name, so the table needs one wide column, not two. */
-.members-table .member-email {
+.data-table .member-email {
   display: block;
   font-weight: 400;
-}
-
-.members-table thead th,
-.member-nowrap {
-  white-space: nowrap;
 }

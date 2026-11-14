@@ -65,6 +65,17 @@ export function MembersIcon() {
   );
 }
 
+// An address card: a contact, as opposed to the people icon for members of the tenant.
+export function CustomersIcon() {
+  return (
+    <Icon>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="9" cy="11" r="2" />
+      <path d="M6 16c.5-1.5 1.6-2 3-2s2.5.5 3 2M15 10h3M15 14h3" />
+    </Icon>
+  );
+}
+
 export function ChevronDownIcon() {
   return (
     <Icon>
