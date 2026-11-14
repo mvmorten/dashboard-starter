@@ -8,6 +8,8 @@ import { useMe } from "./useMe";
 export const Permissions = {
   membersView: "members.view",
   membersManage: "members.manage",
+  customersView: "customers.view",
+  customersEdit: "customers.edit",
 } as const;
 
 export type Permission = (typeof Permissions)[keyof typeof Permissions];

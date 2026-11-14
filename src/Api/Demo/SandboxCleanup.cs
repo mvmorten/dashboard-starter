@@ -37,6 +37,7 @@ public sealed class SandboxCleanup
   /// </summary>
   public static IReadOnlyList<OwnedRows> TenantRows { get; } =
   [
+    new("dbo.Customers", "TenantId"),
     new("dbo.TenantUsers", "TenantId"),
   ];
 

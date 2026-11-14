@@ -73,9 +73,13 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 - **Keys:** `int IDENTITY` on every table; `bigint` only for tables that grow without limit (audit log, events). No public GUID columns.
 - **Tenant-owned tables** carry `TenantId`, lead their indexes with it, and are covered by the Row-Level Security policy.
 - **Global tables** (no `TenantId`, no RLS): `Users`, `Tenants`, `TenantUsers`, `Roles`, `RolePermissions`. One user account can belong to many tenants; roles are per tenant (`TenantUsers.RoleId`, one per membership).
-- **Standard columns** on tenant-owned tables: `TenantId`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, `UpdatedBy` (`datetime2`, UTC), `RowVersion rowversion`. Always write `rowversion`, never `timestamp`.
-- **Optimistic concurrency:** updates include `AND RowVersion = @RowVersion` and use `OUTPUT inserted.RowVersion`. Zero rows updated: 404 if the row is gone, otherwise 409 Conflict with the current version.
-- **Row-Level Security:** the API sets `SESSION_CONTEXT(N'TenantId')` on each connection; a security policy filters every tenant-owned table. App queries still filter by `TenantId` explicitly; RLS is the safety net, not the primary filter.
+- **Standard columns** on tenant-owned tables: `TenantId`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, `UpdatedBy` (`datetime2`, UTC), `DeletedAt`, `DeletedBy` (soft delete, NULL until deleted), `RowVersion rowversion`. Always write `rowversion`, never `timestamp`. Copy `Customers` (`0013_customers.sql`). The `*By` columns come from the signed-in user, never the request body.
+- **Soft delete:** DELETE sets `DeletedAt` and `DeletedBy`. Every app query says `AND DeletedAt IS NULL` explicitly, updates included; no view that hides deleted rows. A deleted row is a 404 everywhere. Exception: the demo row cap counts deleted rows on purpose.
+- **Optimistic concurrency:** `rowVersion` (base64) goes in the request body, DELETE included. Updates include `AND RowVersion = @RowVersion AND DeletedAt IS NULL` and use `OUTPUT inserted.RowVersion`. Zero rows updated: 404 if the row is gone or deleted, otherwise 409 Conflict: ProblemDetails with `rowVersion` and `current` (the record as it is now) as extensions. 409 means only "someone else changed this"; use other codes for other refusals (the demo cap is 422).
+- **Row-Level Security:** the API sets `SESSION_CONTEXT(N'TenantId')` (read-only) on each connection; `Security.TenantAccessPolicy` filters every tenant-owned table and blocks writes into other tenants. No tenant set means no rows (fails closed). App queries still filter by `TenantId` explicitly; RLS is the safety net, not the primary filter, and doesn't hide soft-deleted rows.
+- **The policy and its predicate are one script**, `sql/programmable/Security.fn_TenantAccessPredicate.sql` (drop policy, alter function, create policy). **A new tenant-owned table gets its filter, AFTER INSERT and AFTER UPDATE lines there**; CI (`rls-checks.sh`) fails otherwise. `TenantUsers` is the one global table with a `TenantId` and stays out.
+- **No RLS exemption for any login**, the admin included. Work outside a request sets the tenant itself (`TenantSession` in `src/Db/Tenants`, `SqlConnectionFactory.OpenForTenantAsync`).
+- **A data migration on a tenant-owned table starts with the line `-- for-each-tenant`**: the runner runs it once per tenant with that tenant in `SESSION_CONTEXT`, in one transaction. Without it, RLS shows the migration no rows and it silently changes nothing. Keep schema changes in a separate migration before it, and filter by `CAST(SESSION_CONTEXT(N'TenantId') AS int)`.
 - **SQL in C#:** raw string literals (`"""`), **parameters only**. Never build SQL with `$` interpolation or concatenation of values. Dynamic pieces (sort column, direction) come only from a fixed allow-list in code.
 - **Stored procedures** only where they clearly help (set-based batch work, heavy reporting). Default is inline SQL.
 
@@ -95,12 +99,13 @@ Enforced by `.editorconfig`, ESLint, and Prettier where possible.
 
 ### Demo sandboxes
 
-- "Try the demo" gives each visitor a private sandbox (`src/Api/Demo`): a demo user, a "Demo" tenant (Admin) and an "Other Demo" tenant (Read-only), and sample members. Its contents are defined once, in `SandboxDefinition.cs`. There's no shared demo account.
+- "Try the demo" gives each visitor a private sandbox (`src/Api/Demo`): a demo user, a "Demo" tenant (Admin) and an "Other Demo" tenant (Read-only), sample members, and sample customers in each tenant. Its contents are defined once, in `SandboxDefinition.cs`. There's no shared demo account.
+- A demo tenant holds at most 200 customers (`Demo:MaxCustomersPerTenant`), deleted ones counted, checked under a lock on the tenant row. Only `IsDemo` tenants are capped.
 - Demo rows have `IsDemo = 1` and an `ExpiresAt` (Users and Tenants); a CHECK allows `ExpiresAt` only on demo rows. Find demo rows by `IsDemo`, never by name or email (migration 0012 is the one exception, and says why).
 - A demo account never gets a password. Inside its own tenants it's a normal account; don't add refusals just because a user is a demo user.
 - Off by default (`Demo:SandboxesEnabled`). Off means: no button, `POST /api/demo/sandbox` is a 404, no cleanup service.
 - Cleanup is `SandboxCleanupService` (a `BackgroundService` with `PeriodicTimer`) running `SandboxCleanup` under `sp_getapplock`. It works on each tenant's rows on a connection with that tenant in `SESSION_CONTEXT` (`SqlConnectionFactory.OpenForTenantAsync`). Never give it, or any login, an RLS exemption.
-- **A new table with a `TenantId` column or a foreign key to `Users` or `Tenants` goes in `SandboxCleanup.TenantRows` or `UserRows`** (children first). With sandboxes on, the API refuses to start otherwise.
+- **A new table with a `TenantId` column or a foreign key to `Users` or `Tenants` goes in `SandboxCleanup.TenantRows` or `UserRows`** (children first). With sandboxes on, the API refuses to start otherwise. A tenant-owned table also goes in the RLS policy (above).
 - The runner journals migrations in `SchemaVersions` (file name, content hash, applied at), skips applied ones, and fails if an applied migration's hash changed.
 - **The API never changes the schema.** At startup it only checks that no migrations are pending and refuses to start with a clear message naming the command to run.
 

@@ -52,16 +52,16 @@ internal static class MigrateCommand
         continue;
       }
 
-      string? failure = await ScriptExecutor.TryRunAsync(connection, script, recordInJournal: true);
-      if (failure is not null)
+      ScriptResult result = await ScriptExecutor.TryRunAsync(connection, script, recordInJournal: true);
+      if (result.Failure is not null)
       {
-        ScriptExecutor.PrintResult("failed", script.Name, failure);
+        ScriptExecutor.PrintResult("failed", script.Name, result.Failure);
         Console.WriteLine();
         Console.WriteLine($"Stopped. Nothing from {script.Name} was applied; migrations before it were.");
         return 1;
       }
 
-      ScriptExecutor.PrintResult("applied", script.Name);
+      ScriptExecutor.PrintResult("applied", script.Name, result.Detail);
       appliedCount++;
     }
 
@@ -71,14 +71,14 @@ internal static class MigrateCommand
 
     foreach (SqlScript script in ScriptCatalog.Programmable)
     {
-      string? failure = await ScriptExecutor.TryRunAsync(connection, script, recordInJournal: false);
-      if (failure is not null)
+      ScriptResult result = await ScriptExecutor.TryRunAsync(connection, script, recordInJournal: false);
+      if (result.Failure is not null)
       {
-        ScriptExecutor.PrintResult("failed", script.Name, failure);
+        ScriptExecutor.PrintResult("failed", script.Name, result.Failure);
         return 1;
       }
 
-      ScriptExecutor.PrintResult("applied", script.Name);
+      ScriptExecutor.PrintResult("applied", script.Name, result.Detail);
       programmableCount++;
     }
 

@@ -125,6 +125,13 @@ jobs:
           echo 'a-long-enough-password' | $db create-user --email mem@example.com --name "Mem Example" --tenant "Globex Industries" --password-stdin
           echo 'a-long-enough-password' | $db create-user --email ro@example.com --name "Ro Example" --tenant "Acme Corporation" --role read-only --password-stdin
 
+          # For the customer checks (customer-checks.sh): one user per role, and cmem in a second
+          # tenant for the isolation checks.
+          echo 'a-long-enough-password' | $db create-user --email cadmin@example.com --name "Customer Admin" --tenant "Acme Corporation" --role Admin --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email cmem@example.com --name "Customer Member" --tenant "Acme Corporation" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email cmem@example.com --name "Customer Member" --tenant "Globex Industries" --password-stdin
+          echo 'a-long-enough-password' | $db create-user --email cro@example.com --name "Customer Reader" --tenant "Acme Corporation" --role Read-only --password-stdin
+
           # For the password reset checks (password-checks.sh).
           echo 'a-long-enough-password' | $db create-user --email reset@example.com --name "Reset Example" --tenant "Acme Corporation" --password-stdin
           echo 'a-long-enough-password' | $db create-user --email change@example.com --name "Change Example" --tenant "Acme Corporation" --password-stdin
@@ -267,6 +274,37 @@ jobs:
           done
           bash .github/scripts/role-checks.sh || { cat api-roles.log; exit 1; }
           kill $pid
+
+      # The Customers API (step 9): each role gets exactly its permissions, validation, paging,
+      # search with LIKE's wildcards taken literally, 409 with the current record on a stale
+      # RowVersion, soft delete (gone from every endpoint, row kept), tenant isolation, and the
+      # demo row cap (200, deleted rows counted; real tenants uncapped).
+      - name: Customer checks
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          BASE: http://localhost:5088
+          SQLCMD: docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1
+        run: |
+          dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5088 > api-customers.log 2>&1 &
+          pid=$!
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:5088/api/health -o /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          bash .github/scripts/customer-checks.sh || { cat api-customers.log; exit 1; }
+          kill $pid
+
+      # Row-Level Security, with sqlcmd and no API: the policy covers every table with a TenantId
+      # (TenantUsers excepted), no tenant set means no rows and no writes, and one tenant's context
+      # can't read or write another's. As the API's login and as the admin: neither is exempt.
+      # Uses the customers the step above left in Acme and Globex.
+      - name: Row-Level Security checks
+        env:
+          SQLCMD: docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1
+          SQLCMD_APP: docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d DashboardStarter -U dashboard_app -P AppDevOnly!ChangeMe1
+        run: bash .github/scripts/rls-checks.sh
 
       # Demo sandboxes (src/Api/Demo): "Try the demo" makes exactly the expected rows; two clicks
       # are two sandboxes that can't see each other; the visitor can change members in Demo and
@@ -513,6 +551,127 @@ jobs:
           [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Users WHERE Email IN ($shared);")" = 0 ]
           [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Tenants WHERE Name IN ('Demo', 'Other Demo');")" = 0 ]
           [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Tenants WHERE Name IN ('Acme Corporation', 'Globex Industries');")" = 2 ]
+
+      # A database made by step 8's own code (pinned to the step 8 commit), with a visitor signed in
+      # to a sandbox, migrated by this build. While step 8's API is still running, as it is during
+      # a deploy (migrate runs before the new code starts), it keeps working against the new schema.
+      # Then this build's API: the old sandbox's session still works and can add customers, and
+      # cleanup removes that sandbox, customers included, with the policy on. Its own database.
+      - name: Upgrade from step 8 (Customers and Row-Level Security arrive)
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=UpgradeStep8;User Id=sa;Password=LocalDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          DOTNET_ENVIRONMENT: Development
+          Demo__CleanupInterval: "00:00:02"
+          Auth__SessionCheckSeconds: "2"
+        run: |
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d UpgradeStep8 -U sa -P LocalDevOnly!ChangeMe1"
+          wait_for() { for attempt in $(seq 1 60); do curl -sf "$1/api/health" -o /dev/null && return 0; sleep 1; done; return 1; }
+          step8=a1cf804a1a4aba468b37ff1606a087737cd33563
+          git fetch --no-tags --depth 1 origin "$step8"
+          git worktree add ../step8 "$step8"
+          (cd ../step8 && dotnet build src/Api --configuration Release && \
+            dotnet run --no-build --configuration Release --project src/Db -- migrate && \
+            dotnet run --no-build --configuration Release --project src/Db -- seed)
+          (cd ../step8 && dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5089) > api-step8.log 2>&1 &
+          wait_for http://localhost:5089
+          source .github/scripts/lib.sh
+          BASE=http://localhost:5089
+          expect "$(start_demo "$work/old")" 204
+
+          dotnet run --no-build --configuration Release --project src/Db -- migrate
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.security_policies WHERE name = N'TenantAccessPolicy' AND is_enabled = 1;")" = 1 ]
+          echo "Step 8's API on the new schema:"
+          expect "$(status "$work/old" "$BASE/api/members")" 200
+          expect "$(start_demo "$work/old2")" 204
+          pkill -f 'localhost:5089' || true
+
+          dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5090 > api-upgrade8.log 2>&1 &
+          pid=$!
+          wait_for http://localhost:5090 || { cat api-upgrade8.log; exit 1; }
+          BASE=http://localhost:5090
+          echo "The step 8 sandbox, in this build:"
+          expect "$(status "$work/old" "$BASE/api/auth/me")" 200
+          old_tenant=$(field currentTenantId)
+          expect "$(status "$work/old" "$BASE/api/customers")" 200
+          grep -q '"total":0' "$body"
+          expect "$(post "$work/old" /api/customers '{"name":"Added after the upgrade","status":"Active"}')" 201
+          expect "$(post "$work/old" /api/auth/sign-out)" 204
+          for attempt in $(seq 1 30); do
+            if [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Tenants WHERE Id = $old_tenant;")" = 0 ]; then break; fi
+            sleep 1
+          done
+          kill $pid
+          cat api-upgrade8.log
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Tenants WHERE Id = $old_tenant;")" = 0 ]
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; EXEC sp_set_session_context @key = N'TenantId', @value = $old_tenant; SELECT COUNT(*) FROM dbo.Customers;")" = 0 ]
+          if grep -q 'Demo cleanup failed' api-upgrade8.log; then echo "Cleanup failed."; exit 1; fi
+
+      # Data migrations on a tenant-owned table, on the database from the step above (it has real
+      # tenants and a demo sandbox). Written the obvious way, a data step sees no rows (no tenant
+      # in SESSION_CONTEXT) and quietly changes nothing; with "-- for-each-tenant" as its first
+      # line the runner runs it once per tenant, in that tenant, in one transaction, and a failure
+      # in any tenant rolls it back in all of them. The probe migrations only exist in this job.
+      - name: Data migrations run per tenant with -- for-each-tenant
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=UpgradeStep8;User Id=sa;Password=LocalDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          DOTNET_ENVIRONMENT: Development
+        run: |
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d UpgradeStep8 -U sa -P LocalDevOnly!ChangeMe1"
+          in_tenant() { $sqlcmd -Q "SET NOCOUNT ON; EXEC sp_set_session_context @key = N'TenantId', @value = $1; $2"; }
+          tenants=$($sqlcmd -Q "SET NOCOUNT ON; SELECT Id FROM dbo.Tenants ORDER BY Id;")
+          count=$(echo "$tenants" | wc -l)
+          last=$(echo "$tenants" | tail -1)
+          echo "Tenants: $(echo $tenants)"
+          [ "$count" -ge 3 ]
+          for t in $tenants; do
+            in_tenant "$t" "INSERT INTO dbo.Customers (TenantId, Name) VALUES ($t, N'Probe one'), ($t, N'Probe two');"
+          done
+
+          cat > sql/migrations/9001_probe_no_tenant.sql <<'SQL'
+          -- Written the obvious way: no tenant is set, so Row-Level Security shows it no rows.
+          UPDATE dbo.Customers SET Notes = N'no tenant' WHERE Notes IS NULL;
+          SQL
+          cat > sql/migrations/9002_probe_for_each_tenant.sql <<'SQL'
+          -- for-each-tenant
+          UPDATE dbo.Customers
+          SET Notes = CONCAT(N'tenant ', TenantId)
+          WHERE TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS int)
+            AND Notes IS NULL;
+          SQL
+          dotnet build src/Db --configuration Release
+          output=$(dotnet run --no-build --configuration Release --project src/Db -- migrate)
+          echo "$output"
+          echo "$output" | grep -q "applied  9001_probe_no_tenant.sql$"
+          echo "$output" | grep -q "applied  9002_probe_for_each_tenant.sql (for each tenant: $count)"
+          for t in $tenants; do
+            [ "$(in_tenant "$t" "SELECT COUNT(*) FROM dbo.Customers WHERE Notes = N'no tenant';")" = 0 ]
+            [ "$(in_tenant "$t" "SELECT COUNT(*) FROM dbo.Customers WHERE Name LIKE N'Probe %' AND Notes = CONCAT(N'tenant ', $t);")" = 2 ]
+          done
+          # Nothing is left in SESSION_CONTEXT for the scripts after it: the policy script reran fine.
+          echo "$output" | grep -q "applied  Security.fn_TenantAccessPredicate.sql"
+
+          # Fails in the last tenant: rolled back everywhere, and the error names the tenant.
+          cat > sql/migrations/9003_probe_fails.sql <<'SQL'
+          -- for-each-tenant
+          UPDATE dbo.Customers SET Notes = N'half done' WHERE TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS int);
+          GO
+          IF CAST(SESSION_CONTEXT(N'TenantId') AS int) = (SELECT MAX(Id) FROM dbo.Tenants)
+          BEGIN
+            THROW 50000, N'Probe failure in the last tenant.', 1;
+          END
+          SQL
+          dotnet build src/Db --configuration Release
+          set +e
+          output=$(dotnet run --no-build --configuration Release --project src/Db -- migrate)
+          code=$?
+          set -e
+          echo "$output"
+          [ "$code" = 1 ]
+          echo "$output" | grep -q "failed   9003_probe_fails.sql (tenant $last, batch 2 of 2"
+          for t in $tenants; do
+            [ "$(in_tenant "$t" "SELECT COUNT(*) FROM dbo.Customers WHERE Notes = N'half done';")" = 0 ]
+          done
+          rm sql/migrations/9001_probe_no_tenant.sql sql/migrations/9002_probe_for_each_tenant.sql sql/migrations/9003_probe_fails.sql
 
       - name: Editing an applied migration makes migrate fail
         run: |

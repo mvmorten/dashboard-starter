@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using DashboardStarter.Api.Database;
+using DashboardStarter.Db.Tenants;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
@@ -26,8 +28,8 @@ public sealed class SandboxStore
   }
 
   /// <summary>
-  /// Creates a sandbox in one transaction: the visitor, the tenants, the sample members, and
-  /// every membership. Returns null when <see cref="DemoOptions.MaxActiveSandboxes"/> are
+  /// Creates a sandbox in one transaction: the visitor, the tenants, the sample members, every
+  /// membership, and the sample customers. Returns null when <see cref="DemoOptions.MaxActiveSandboxes"/> are
   /// already in use.
   /// </summary>
   public async Task<SandboxCreated?> CreateAsync(CancellationToken cancellationToken)
@@ -101,6 +103,17 @@ public sealed class SandboxStore
         await InsertMembershipAsync(
           connection, transaction, tenantIds[membership.TenantName], sampleId, membership, visitorId, markUsed: false, cancellationToken);
       }
+    }
+
+    // Customers are tenant-owned: Row-Level Security refuses an insert unless the connection is
+    // working in that tenant. This connection belongs to no request (the visitor isn't signed in
+    // yet), so it moves from tenant to tenant here, set without read_only. It goes back to the
+    // pool when this method ends, and the pool clears SESSION_CONTEXT before anyone reuses it.
+    foreach ((string tenantName, IReadOnlyList<SandboxCustomer> customers) in SandboxDefinition.Customers)
+    {
+      int tenantId = tenantIds[tenantName];
+      await TenantSession.SetAsync(connection, transaction, tenantId, readOnly: false, cancellationToken);
+      await InsertCustomersAsync(connection, transaction, tenantId, customers, visitorId, cancellationToken);
     }
 
     await transaction.CommitAsync(cancellationToken);
@@ -237,6 +250,36 @@ public sealed class SandboxStore
     {
       throw new InvalidOperationException($"SandboxDefinition names a role that doesn't exist: {membership.RoleName}.");
     }
+  }
+
+  // All of a tenant's sample customers in one statement: the list goes in as one JSON parameter,
+  // and OPENJSON turns it back into rows on the server. Still a parameter, never SQL text.
+  private static async Task InsertCustomersAsync(
+    SqlConnection connection,
+    SqlTransaction transaction,
+    int tenantId,
+    IReadOnlyList<SandboxCustomer> customers,
+    int createdBy,
+    CancellationToken cancellationToken)
+  {
+    const string sql = """
+      INSERT INTO dbo.Customers (TenantId, Name, Email, Phone, Status, Notes, CreatedBy, UpdatedBy)
+      SELECT @TenantId, c.Name, c.Email, c.Phone, c.Status, c.Notes, @CreatedBy, @CreatedBy
+      FROM OPENJSON(@Customers)
+        WITH (
+          Name nvarchar(200) '$.Name',
+          Email nvarchar(320) '$.Email',
+          Phone nvarchar(50) '$.Phone',
+          Status varchar(20) '$.Status',
+          Notes nvarchar(2000) '$.Notes'
+        ) AS c;
+      """;
+
+    await connection.ExecuteAsync(Command(
+      sql,
+      new { TenantId = tenantId, CreatedBy = createdBy, Customers = JsonSerializer.Serialize(customers) },
+      transaction,
+      cancellationToken));
   }
 
   private static CommandDefinition Command(string sql, object? parameters, SqlTransaction? transaction, CancellationToken cancellationToken)
