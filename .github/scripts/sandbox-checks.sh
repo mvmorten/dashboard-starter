@@ -35,6 +35,17 @@ set_status() {
   put "$1" "/api/members/$(member "$2" .userId)/status" \
     "{\"status\":\"$3\",\"rowVersion\":\"$(member "$2" .rowVersion)\"}"
 }
+# customers_in <tenant ids, comma-separated>: how many Customers rows those tenants have, deleted
+# ones included. Row-Level Security applies to the admin too, so each tenant is counted in its own
+# context.
+customers_in() {
+  local total=0 id
+  for id in ${1//,/ }; do
+    total=$((total + $(sql "EXEC sp_set_session_context @key = N'TenantId', @value = $id; SELECT COUNT(*) FROM dbo.Customers;")))
+  done
+  echo "$total"
+}
+real_tenants() { sql "SELECT STRING_AGG(Id, ',') FROM dbo.Tenants WHERE IsDemo = 0;"; }
 # The sandbox suffix in an address: visitor-1a2b3c4d5e6f@demo.invalid -> 1a2b3c4d5e6f
 suffix_of() { echo "$1" | sed -n 's/^visitor-\([0-9a-f]*\)@demo\.invalid$/\1/p'; }
 # Everything that isn't a demo row, to show cleanup never touches it.
@@ -44,25 +55,27 @@ real_rows() {
     (SELECT COUNT(*) FROM dbo.Tenants WHERE IsDemo = 0),
     (SELECT COUNT(*) FROM dbo.TenantUsers AS tu JOIN dbo.Tenants AS t ON t.Id = tu.TenantId WHERE t.IsDemo = 0),
     (SELECT COUNT(*) FROM dbo.PasswordResetTokens AS p JOIN dbo.Users AS u ON u.Id = p.UserId WHERE u.IsDemo = 0),
-    (SELECT CHECKSUM_AGG(CHECKSUM(Id, RoleId, Status)) FROM dbo.TenantUsers AS tu WHERE EXISTS (SELECT 1 FROM dbo.Tenants AS t WHERE t.Id = tu.TenantId AND t.IsDemo = 0));"
+    (SELECT CHECKSUM_AGG(CHECKSUM(Id, RoleId, Status)) FROM dbo.TenantUsers AS tu WHERE EXISTS (SELECT 1 FROM dbo.Tenants AS t WHERE t.Id = tu.TenantId AND t.IsDemo = 0));" | tr '\n' ' '
+  customers_in "$(real_tenants)"
 }
-# rows_for <suffix> -> the users, tenants and memberships of one sandbox, still in the database
+# rows_for <suffix> <tenant ids> -> the users, tenants, memberships and customers of one sandbox,
+# still in the database
 rows_for() {
-  sql "SELECT
+  echo "$(sql "SELECT
     (SELECT COUNT(*) FROM dbo.Users WHERE Email LIKE '%-$1@demo.invalid'),
     (SELECT COUNT(*) FROM dbo.Tenants WHERE Id IN ($2)),
-    (SELECT COUNT(*) FROM dbo.TenantUsers WHERE TenantId IN ($2));"
+    (SELECT COUNT(*) FROM dbo.TenantUsers WHERE TenantId IN ($2));") $(customers_in "$2")"
 }
 wait_until_removed() {
   for attempt in $(seq 1 30); do
-    if [ "$(rows_for "$1" "$2")" = "0 0 0" ]; then return 0; fi
+    if [ "$(rows_for "$1" "$2")" = "0 0 0 0" ]; then return 0; fi
     sleep 0.5
   done
-  echo "Sandbox $1 is still there: $(rows_for "$1" "$2") (users tenants memberships)."
+  echo "Sandbox $1 is still there: $(rows_for "$1" "$2") (users tenants memberships customers)."
   exit 1
 }
 
-echo "1. Try the demo: a private user, two tenants, the sample members, and a signed-in session"
+echo "1. Try the demo: a private user, two tenants, the sample members and customers, and a signed-in session"
 expect "$(start_demo "$work/a")" 204
 expect "$(status "$work/a" "$BASE/api/auth/me")" 200
 a_email=$(json .user.email)
@@ -74,7 +87,7 @@ a_demo=$(tenant_id Demo)
 a_other=$(tenant_id "Other Demo")
 expect "$(json .currentTenantId)" "$a_demo"
 expect "$(json .role)" Admin
-expect "$(json '.permissions | join(",")')" "members.manage,members.view"
+expect "$(json '.permissions | join(",")')" "customers.edit,customers.view,members.manage,members.view"
 # Exactly these rows, all IsDemo, none with a password, all expiring together.
 sql "SELECT u.Email, u.IsDemo, CASE WHEN u.PasswordHash IS NULL THEN 'none' ELSE 'set' END, t.Name, t.IsDemo, r.Name, tu.Status
   FROM dbo.TenantUsers AS tu
@@ -96,6 +109,14 @@ visitor-SUFFIX@demo.invalid 1 none Other Demo 1 Read-only Active
 EOF
 diff "$work/expected.txt" "$work/sandbox.txt"
 expect "$(sql "SELECT COUNT(DISTINCT ExpiresAt) FROM (SELECT ExpiresAt FROM dbo.Users WHERE Email LIKE '%-$a@demo.invalid' UNION ALL SELECT ExpiresAt FROM dbo.Tenants WHERE Id IN ($a_demo, $a_other)) AS e;")" 1
+# Sample customers (SandboxDefinition.Customers): more than a page in each tenant, different in
+# each, made by the visitor.
+expect "$(customers_in "$a_demo"),$(customers_in "$a_other")" "30,27"
+expect "$(status "$work/a" "$BASE/api/customers")" 200
+expect "$(json .total),$(json '.items | length'),$(json '.items[0].name')" "30,25,100% Natural Soap Co."
+a_customer=$(json '.items[1].id')
+expect "$(sql "EXEC sp_set_session_context @key = N'TenantId', @value = $a_demo;
+  SELECT COUNT(*) FROM dbo.Customers AS c JOIN dbo.Users AS u ON u.Id = c.CreatedBy WHERE u.Email = '$a_email';")" 30
 
 echo "2. A second click is a second sandbox, and neither can see the other"
 expect "$(start_demo "$work/b")" 204
@@ -109,6 +130,7 @@ expect "$(post "$work/a" /api/auth/switch-tenant "{\"tenantId\":$b_other}")" 403
 load_members "$work/a"
 if grep -q "$b" "$work/members.json"; then echo "Sandbox A sees sandbox B's members."; exit 1; fi
 expect "$(jq '.members | length' "$work/members.json")" 5
+expect "$(status "$work/b" "$BASE/api/customers/$a_customer")" 404
 
 echo "3. In Demo the visitor is an Admin for real: member changes work"
 expect "$(set_role "$work/a" "Priya Shah" Read-only)" 200
@@ -116,19 +138,31 @@ expect "$(set_status "$work/a" "Jordan Blake" Active)" 200
 load_members "$work/a"
 expect "$(member "Priya Shah" .roleName)" Read-only
 expect "$(member "Jordan Blake" .status)" Active
+echo "   Customers too: a change, and a soft delete (cleanup must remove deleted rows as well)"
+expect "$(status "$work/a" "$BASE/api/customers/$a_customer")" 200
+a_customer_name=$(json .name)
+expect "$(put "$work/a" "/api/customers/$a_customer" "{\"name\":\"Changed in A\",\"status\":\"Active\",\"rowVersion\":\"$(json .rowVersion)\"}")" 200
+antiforgery "$work/a"
+expect "$(status "$work/a" -X DELETE -H "X-XSRF-TOKEN: $(xsrf "$work/a")" -H 'Content-Type: application/json' \
+  -d "{\"rowVersion\":\"$(json .rowVersion)\"}" "$BASE/api/customers/$a_customer")" 204
 echo "   Still not their own role, like anyone else"
 expect "$(set_role "$work/a" "Demo Guest" Member)" 400
 echo "   Sandbox B is unchanged"
 load_members "$work/b"
 expect "$(member "Priya Shah" .roleName)" Member
 expect "$(member "Jordan Blake" .status)" Disabled
+expect "$(status "$work/b" -G --data-urlencode "search=$a_customer_name" "$BASE/api/customers")" 200
+expect "$(json .total)" 1
 
-echo "4. In Other Demo the visitor is Read-only: no member changes"
+echo "4. In Other Demo the visitor is Read-only: no member or customer changes"
 expect "$(post "$work/a" /api/auth/switch-tenant "{\"tenantId\":$a_other}")" 200
 expect "$(json .role)" Read-only
-expect "$(json '.permissions | join(",")')" "members.view"
+expect "$(json '.permissions | join(",")')" "customers.view,members.view"
 expect "$(set_role "$work/a" "Priya Shah" Read-only)" 403
 expect "$(json .title)" "You don't have access to this"
+expect "$(status "$work/a" "$BASE/api/customers")" 200
+expect "$(json .total),$(json '.items[0].name')" "27,Ada Okafor"
+expect "$(post "$work/a" /api/customers '{"name":"Not allowed","status":"Active"}')" 403
 
 echo "5. The Db runner won't give a demo account a password or a role"
 if echo 'a-long-enough-password' | $DB set-password --email "$a_email" --password-stdin 2> "$work/refused.txt"; then
@@ -142,7 +176,8 @@ if $DB set-role --email "$a_email" --tenant "$a_demo" --role Member 2> "$work/re
 fi
 grep -q 'is a demo account' "$work/refused.txt"
 
-echo "6. An expired sandbox's session ends, and cleanup removes every row it owned and nothing else"
+echo "6. An expired sandbox's session ends, and cleanup removes every row it owned (customers too, with"
+echo "   Row-Level Security on) and nothing else"
 before=$(real_rows)
 sql "UPDATE dbo.Users SET ExpiresAt = DATEADD(minute, -1, SYSUTCDATETIME()) WHERE Email LIKE '%-$a@demo.invalid';
   UPDATE dbo.Tenants SET ExpiresAt = DATEADD(minute, -1, SYSUTCDATETIME()) WHERE Id IN ($a_demo, $a_other);"
@@ -151,7 +186,7 @@ expect "$(status "$work/a" "$BASE/api/auth/me")" 401
 wait_until_removed "$a" "$a_demo, $a_other"
 expect "$(real_rows)" "$before"
 echo "   Sandbox B is still there"
-expect "$(rows_for "$b" "$b_demo, $b_other")" "5 2 8"
+expect "$(rows_for "$b" "$b_demo, $b_other")" "5 2 8 57"
 expect "$(status "$work/b" "$BASE/api/auth/me")" 200
 
 echo "7. Using a sandbox keeps it alive; signing out ends it"
@@ -177,7 +212,7 @@ holder=$!
 sleep 1
 expect "$(post "$work/c" /api/auth/sign-out)" 204
 sleep 5
-expect "$(rows_for "$c" "$c_demo, $c_other")" "5 2 8"
+expect "$(rows_for "$c" "$c_demo, $c_other")" "5 2 8 57"
 wait "$holder"
 wait_until_removed "$c" "$c_demo, $c_other"
 

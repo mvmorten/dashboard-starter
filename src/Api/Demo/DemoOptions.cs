@@ -34,6 +34,12 @@ public sealed class DemoOptions
 
   public int SandboxWindowMinutes { get; set; } = 60;
 
+  /// <summary>
+  /// Customers a demo tenant can hold, deleted ones included, so adding and deleting in a loop
+  /// can't grow the table. Only demo tenants (Tenants.IsDemo) have a cap.
+  /// </summary>
+  public int MaxCustomersPerTenant { get; set; } = 200;
+
   /// <summary>How often the cleanup service looks for expired sandboxes. It also runs once at startup.</summary>
   public TimeSpan CleanupInterval { get; set; } = TimeSpan.FromHours(1);
 }
