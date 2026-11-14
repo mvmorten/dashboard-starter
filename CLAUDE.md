@@ -21,7 +21,7 @@ An opinionated, open-source dashboard starter: React + TypeScript, ASP.NET Core,
 
 ## Stack
 
-- **Front end:** React + TypeScript, Vite. Chosen in the app shell step (step 4): plain CSS (no UI kit), React Router in declarative mode, TanStack Query for server data. A grid and form libraries are decided in their own steps; don't add them before then.
+- **Front end:** React + TypeScript, Vite. Chosen in the app shell step (step 4): plain CSS (no UI kit), React Router in declarative mode, TanStack Query for server data. A grid and form libraries are decided in their own steps; don't add them before then. Unit tests use Node's own runner (`npm test`, `*.test.ts` next to the code, checked by `tsconfig.node.json`): keep tested logic in pure modules with no imports, like `customers/merge.ts`.
 - **API:** ASP.NET Core Web API with **controllers**, current .NET LTS.
 - **Database:** SQL Server, one shared database for all tenants.
 - **Data access:** Dapper, hand-written SQL inline in C#.

@@ -84,8 +84,20 @@ export function apiPut<T>(
   return send<T>("PUT", path, body, options);
 }
 
+// DELETE, with a JSON body when the API wants one (a customer's rowVersion). Same antiforgery
+// handling as POST.
+export function apiDelete<T>(
+  path: string,
+  body?: unknown,
+  options: RequestOptions = {},
+): Promise<T> {
+  return send<T>("DELETE", path, body, options);
+}
+
+type Method = "POST" | "PUT" | "DELETE";
+
 async function send<T>(
-  method: "POST" | "PUT",
+  method: Method,
   path: string,
   body: unknown,
   options: RequestOptions,
@@ -112,12 +124,12 @@ async function send<T>(
 }
 
 // Antiforgery (src/Api/Auth/AuthCookies.cs): GET /api/auth/antiforgery sets a cookie that
-// script can read, and every POST copies it into this header. Another site can make the
+// script can read, and every change (POST, PUT, DELETE) copies it into this header. Another site can make the
 // browser send our cookies, but it can't read them, so it can't send the header.
 //
 // The token is tied to who is signed in and to their current tenant, so the app fetches a
-// new one after sign-in, sign-out, and switching tenants (auth/session.ts). Every POST and
-// PUT copies it.
+// new one after sign-in, sign-out, and switching tenants (auth/session.ts). Every POST, PUT
+// and DELETE copies it.
 const antiforgeryHeader = "X-XSRF-TOKEN";
 
 // Deployed, the cookie's name has the __Host- prefix; in local development it doesn't.
@@ -131,7 +143,7 @@ export async function refreshAntiforgeryToken(): Promise<void> {
 }
 
 function request(
-  method: "POST" | "PUT",
+  method: Method,
   path: string,
   body: unknown,
   signal: AbortSignal | undefined,

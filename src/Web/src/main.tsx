@@ -10,7 +10,9 @@ import "./styles/base.css";
 import "./styles/shell.css";
 import "./styles/pages.css";
 import "./styles/sign-in.css";
+import "./styles/lists.css";
 import "./styles/members.css";
+import "./styles/customers.css";
 
 const root = document.getElementById("root");
 if (!root) {

@@ -1,0 +1,98 @@
+/* Lists of records, shared by Members and Customers. Phone first: a list of cards. From 48rem
+   (the pages switch with useMediaQuery and the same query), a table. No grid library: that's
+   its own step. */
+
+.card-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.card-list > li + li {
+  border-top: 1px solid var(--border);
+}
+
+/* A card that is one link: the whole card is the tap target. */
+.card-list-link {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  color: inherit;
+  text-decoration: none;
+}
+
+.card-list-link:hover .card-list-title,
+.card-list-link:focus-visible .card-list-title {
+  text-decoration: underline;
+}
+
+.card-list-head {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.card-list-title {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.card-list-line {
+  color: var(--muted);
+}
+
+/* If the table is still wider than its space, it scrolls here, not the page. */
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.data-table thead th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-table tbody tr + tr {
+  border-top: 1px solid var(--border);
+}
+
+.data-table tbody th {
+  font-weight: 600;
+}
+
+/* A link in a table cell gets a tap-sized box without changing the row's look. */
+.data-table tbody th a {
+  display: inline-block;
+  padding: var(--space-2) 0;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.status-badge {
+  color: var(--ok);
+  white-space: nowrap;
+}
+
+.status-badge-off {
+  color: var(--muted);
+}

@@ -148,7 +148,7 @@ A public demo needs a way in without an account. Step 7 used one shared account 
 
 ## The CRUD example: Customers
 
-Customers is the sample module: the pattern to copy for your own tenant-owned records, from the table to the API. Each layer is one place: the table in `sql/migrations/0013_customers.sql`, the SQL in `src/Api/Customers/CustomerStore.cs`, the endpoints in `CustomersController.cs`, the field rules in `CustomerValidation.cs`.
+Customers is the sample module: the pattern to copy for your own tenant-owned records, from the table to the screen. Each layer is one place: the table in `sql/migrations/0013_customers.sql`, the SQL in `src/Api/Customers/CustomerStore.cs`, the endpoints in `CustomersController.cs`, the field rules in `CustomerValidation.cs`, the calls in `src/Web/src/customers/customers.ts`, and the pages in `src/Web/src/pages/Customers.tsx` (the list) and `Customer.tsx` (the form).
 
 | Endpoint | Needs | |
 | --- | --- | --- |
@@ -160,7 +160,24 @@ Customers is the sample module: the pattern to copy for your own tenant-owned re
 
 - **Validation is on the server**: `400` with ProblemDetails `errors` keyed by field (`name`, `email`, ...). Text is trimmed, an empty optional field is stored as `NULL`, and the lengths are the column lengths. Shared rules for the front end come with the forms step.
 - **Email isn't unique.** Two customers can share an address (a family, a shared inbox). User accounts are different: `Users.Email` is unique, because it's how you sign in.
-- **Not yet:** sortable columns and filters (the data grid step), restoring deleted customers and history (the audit log step).
+- **The list** (`/customers`) is a table on a wide screen and cards on a phone, with a search box and 25 a page. The search and the page are in the URL, so Back, a reload and a shared link show the same page.
+- **The form** (`/customers/new`, `/customers/{id}`) shows the server's field errors under each field; there are no client-side rules yet. Without `customers.edit` the same page shows the fields to read, and there's no "New customer" button. Delete asks once, on the page. Leaving with unsaved changes asks first: closing the tab, or following a link. React Router's `useBlocker` only works in its data mode, so `useUnsavedChangesWarning` listens for link clicks itself. It doesn't catch the browser's Back button.
+- **Not yet:** sortable columns and filters (the data grid step), shared validation rules (the forms step), restoring deleted customers and history (the audit log step).
+
+### Edit conflicts: the three-way merge
+
+Two people open the same customer. One saves. When the other saves, the API answers `409` with the record as it is now. Instead of "someone else changed this, start over", the form merges, field by field, using three versions: what the form loaded (the original), what's in the form (mine), and what the other person saved (theirs).
+
+| The field | Result |
+| --- | --- |
+| Changed only by me | Keep mine |
+| Changed only by them | Take theirs, and list it, so nothing changes without being seen |
+| Changed by both, to the same value | Fine |
+| Changed by both, to different values | A conflict: yours and theirs side by side (stacked on a phone), and you pick one |
+
+Then you save again. That save sends their `rowVersion`, so if a third person saved in between, it's another 409 and another merge, starting from their version. If the other person deleted the customer, the form says so and offers to save your version as a new customer.
+
+The merge is a pure function with no imports, `src/Web/src/customers/merge.ts`, tested with Node's own test runner (`npm test`, which runs `merge.test.ts`): no test library, and no browser.
 
 ## Code conventions
 
@@ -225,7 +242,7 @@ The goal is the 80% every dashboard app needs on day one:
 - [x] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
 - [x] Users, roles, and permissions, enforced on both API and UI
 - [ ] A reusable data grid with server-side paging, sorting, and filtering
-- [ ] CRUD example module showing the end-to-end pattern, including edit conflicts
+- [x] CRUD example module showing the end-to-end pattern, including edit conflicts
 - [ ] Forms with shared validation rules
 - [ ] Settings and user profile pages
 - [ ] Audit log of who changed what
@@ -370,6 +387,7 @@ dotnet build                 # warnings are errors, including code style from .e
 cd src/Web
 npm run lint                 # ESLint
 npm run format:check         # Prettier (npm run format to fix)
+npm test                     # unit tests, with Node's test runner
 npm run build                # type-check and build
 ```
 

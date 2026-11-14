@@ -1,0 +1,276 @@
+/* The Customers pages (pages/Customers.tsx, pages/Customer.tsx): the list's search and pager,
+   and the form with its conflict merge. Phone first; min-width queries add room. */
+
+/* The heading, and the "New customer" button beside it once there's room. */
+.page-head {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.page-head .lead {
+  margin: 0;
+}
+
+@media (min-width: 36rem) {
+  .page-head {
+    grid-template-columns: 1fr auto;
+    align-items: start;
+  }
+}
+
+/* A link that looks like a button: it goes somewhere, it doesn't do something. */
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--target);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.primary-link {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--background);
+  font-weight: 600;
+}
+
+.search-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.search-form input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  min-height: var(--target);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  color: var(--text);
+  font: inherit;
+  font-size: max(1rem, 16px);
+}
+
+.result-summary {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+}
+
+.pager {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-4);
+}
+
+.pager-position {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+@media (min-width: 36rem) {
+  .pager {
+    justify-content: flex-start;
+  }
+}
+
+/* The form. */
+
+.back-link {
+  margin: 0 0 var(--space-2);
+}
+
+.back-link a {
+  display: inline-block;
+  padding: var(--space-2) 0;
+}
+
+.customer-form {
+  max-width: 36rem;
+}
+
+.optional {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.field-error {
+  margin: 0;
+  color: var(--failed);
+}
+
+.field [aria-invalid="true"] {
+  border-color: var(--failed);
+}
+
+.form-actions {
+  display: grid;
+  gap: var(--space-2);
+}
+
+@media (min-width: 36rem) {
+  .form-actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .form-actions .primary-button {
+    width: auto;
+  }
+}
+
+.danger-button {
+  border-color: var(--failed);
+  color: var(--failed);
+}
+
+.danger-button-solid {
+  background: var(--failed);
+  color: var(--background);
+  font-weight: 600;
+}
+
+.delete-section {
+  max-width: 36rem;
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+}
+
+.delete-confirm p {
+  margin: 0 0 var(--space-4);
+}
+
+/* Someone else saved, or deleted it, while you were editing: shown above the form. */
+.heads-up {
+  max-width: 48rem;
+  margin: 0 0 var(--space-6);
+  padding: var(--space-4);
+  border: 1px solid var(--unknown);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.heads-up h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.125rem;
+}
+
+.heads-up p {
+  margin: 0 0 var(--space-3);
+}
+
+.taken-list {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-6);
+}
+
+/* One field both people changed: yours and theirs, stacked on a phone, side by side once
+   there's room. */
+.conflict {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+}
+
+.conflict legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+.conflict-before {
+  color: var(--muted);
+}
+
+.conflict-options {
+  display: grid;
+  gap: var(--space-2);
+}
+
+@media (min-width: 36rem) {
+  .conflict-options {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* The whole box is the radio's label: one big target. */
+.conflict-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-2);
+  align-items: baseline;
+  min-height: var(--target);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  cursor: pointer;
+}
+
+.conflict-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.conflict-option input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+}
+
+.conflict-who {
+  font-weight: 600;
+}
+
+.conflict-option .field-value,
+.conflict-option .empty-value {
+  grid-column: 2;
+}
+
+/* Values as typed: keep the notes' line breaks, and wrap a long address. */
+.field-value {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.empty-value {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Read-only: the fields as a list of label and value. */
+.field-list {
+  max-width: 36rem;
+  margin: 0;
+}
+
+.field-list > div {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+
+.field-list dt {
+  font-weight: 600;
+}
+
+.field-list dd {
+  margin: 0;
+}
+
+@media (min-width: 36rem) {
+  .field-list > div {
+    display: grid;
+    grid-template-columns: 8rem 1fr;
+    gap: var(--space-4);
+  }
+}
