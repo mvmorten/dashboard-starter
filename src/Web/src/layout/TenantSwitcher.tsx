@@ -72,7 +72,7 @@ export default function TenantSwitcher() {
         id={menuId}
         ref={menuRef}
         popover="auto"
-        className="topbar-menu"
+        className="topbar-menu tenant-menu"
         aria-label="Choose a tenant"
         onToggle={(event) => focusMenuOnOpen(menuRef, event)}
         onKeyDown={(event) => moveMenuFocus(menuRef, event)}
