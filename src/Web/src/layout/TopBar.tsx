@@ -1,5 +1,3 @@
-import { Link } from "react-router";
-import Logo from "./Logo";
 import TenantSwitcher from "./TenantSwitcher";
 import UserMenu from "./UserMenu";
 import { MenuIcon } from "./icons";
@@ -24,14 +22,8 @@ export default function TopBar({ onOpenMenu }: TopBarProps) {
         </button>
       )}
 
-      {/* Phones only (wide screens show the brand in the sidebar), and there just the logo:
-          the room goes to the tenant name, which says whose data this is. The name stays
-          in the link for screen readers. */}
-      <Link to="/" className="topbar-brand">
-        <Logo />
-        <span className="visually-hidden">Dashboard Starter</span>
-      </Link>
-
+      {/* No brand here: wide screens show it in the sidebar, and on a phone the room goes
+          to the tenant name, which says whose data this is. */}
       <div className="topbar-spacer" />
 
       <TenantSwitcher />

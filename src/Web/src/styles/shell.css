@@ -31,18 +31,6 @@
   flex: none;
 }
 
-/* Just the logo, as a full-size touch target. */
-.topbar-brand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  min-width: var(--target);
-  min-height: var(--target);
-  color: var(--text);
-  text-decoration: none;
-}
-
 .topbar-spacer {
   flex: 1;
 }
@@ -317,11 +305,6 @@
   .content {
     grid-area: main;
     padding: var(--space-8);
-  }
-
-  /* The brand lives in the sidebar now. */
-  .topbar-brand {
-    display: none;
   }
 
   .tenant-name {
