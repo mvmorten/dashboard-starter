@@ -24,9 +24,12 @@ export default function TopBar({ onOpenMenu }: TopBarProps) {
         </button>
       )}
 
+      {/* Phones only (wide screens show the brand in the sidebar), and there just the logo:
+          the room goes to the tenant name, which says whose data this is. The name stays
+          in the link for screen readers. */}
       <Link to="/" className="topbar-brand">
         <Logo />
-        Dashboard Starter
+        <span className="visually-hidden">Dashboard Starter</span>
       </Link>
 
       <div className="topbar-spacer" />

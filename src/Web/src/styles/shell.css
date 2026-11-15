@@ -31,15 +31,14 @@
   flex: none;
 }
 
+/* Just the logo, as a full-size touch target. */
 .topbar-brand {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  overflow: hidden;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  justify-content: center;
+  flex: none;
+  min-width: var(--target);
+  min-height: var(--target);
   color: var(--text);
   text-decoration: none;
 }
@@ -179,9 +178,9 @@
   min-width: 0;
 }
 
+/* On a phone, as wide as the top bar has room for; a longer name ends in an ellipsis. */
 .tenant-name {
   display: block;
-  max-width: 10rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -323,5 +322,9 @@
   /* The brand lives in the sidebar now. */
   .topbar-brand {
     display: none;
+  }
+
+  .tenant-name {
+    max-width: 10rem;
   }
 }
