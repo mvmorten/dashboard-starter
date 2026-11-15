@@ -10,9 +10,12 @@ import { useMediaQuery } from "../layout/useMediaQuery";
 import { usePageTitle } from "../layout/usePageTitle";
 import NoAccess from "./NoAccess";
 
-// What the form tells the list after it navigates here (a delete), in history state.
+// What the form tells the list after it navigates here (a delete), in history state. The
+// tenant it happened in goes with it: switching tenants keeps the same history entry, and
+// another tenant's list shouldn't say "Deleted: ..." about a customer it never had.
 export interface CustomersNotice {
   notice: string;
+  tenantId: number | null;
 }
 
 // The current tenant's customers: a search box, 25 a page, a table on a wide screen and cards
@@ -26,7 +29,11 @@ export default function Customers() {
   const page = pageFrom(params.get("page"));
   const customers = useCustomers(search, page);
   const wide = useMediaQuery("(min-width: 48rem)");
-  const notice = (useLocation().state as CustomersNotice | null)?.notice;
+  const arrivedWith = useLocation().state as CustomersNotice | null;
+  const notice =
+    arrivedWith && arrivedWith.tenantId === me?.currentTenantId
+      ? arrivedWith.notice
+      : null;
 
   if (!can(me, Permissions.customersView)) {
     return <NoAccess />;
