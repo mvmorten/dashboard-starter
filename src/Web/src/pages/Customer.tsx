@@ -303,7 +303,10 @@ function CustomerEditor({ initial }: { initial: Customer | null }) {
         refreshCached(created);
         navigate(`/customers/${created.id}`, {
           replace: true,
-          state: { notice: "Customer added." } satisfies CustomersNotice,
+          state: {
+            notice: "Customer added.",
+            tenantId,
+          } satisfies CustomersNotice,
         });
         return;
       }
@@ -363,6 +366,7 @@ function CustomerEditor({ initial }: { initial: Customer | null }) {
         replace: true,
         state: {
           notice: "Saved as a new customer.",
+          tenantId,
         } satisfies CustomersNotice,
       });
     } catch (caught) {
@@ -390,7 +394,10 @@ function CustomerEditor({ initial }: { initial: Customer | null }) {
       await deleteCustomer(base.id, base.rowVersion);
       refreshCached(null);
       navigate("/customers", {
-        state: { notice: `Deleted: ${base.name}` } satisfies CustomersNotice,
+        state: {
+          notice: `Deleted: ${base.name}`,
+          tenantId,
+        } satisfies CustomersNotice,
       });
     } catch (caught) {
       const theirs = currentOf(caught);
@@ -404,6 +411,7 @@ function CustomerEditor({ initial }: { initial: Customer | null }) {
         navigate("/customers", {
           state: {
             notice: `${base.name} was already deleted.`,
+            tenantId,
           } satisfies CustomersNotice,
         });
         return;

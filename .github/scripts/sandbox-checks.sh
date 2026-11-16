@@ -109,6 +109,12 @@ visitor-SUFFIX@demo.invalid 1 none Other Demo 1 Read-only Active
 EOF
 diff "$work/expected.txt" "$work/sandbox.txt"
 expect "$(sql "SELECT COUNT(DISTINCT ExpiresAt) FROM (SELECT ExpiresAt FROM dbo.Users WHERE Email LIKE '%-$a@demo.invalid' UNION ALL SELECT ExpiresAt FROM dbo.Tenants WHERE Id IN ($a_demo, $a_other)) AS e;")" 1
+# The visitor has just signed in; the sample members never have. Members shows the same.
+expect "$(sql "SELECT STRING_AGG(Email, ',') WITHIN GROUP (ORDER BY Email) FROM dbo.Users
+  WHERE Email LIKE '%-$a@demo.invalid' AND LastSignInAt > DATEADD(minute, -5, SYSUTCDATETIME());")" "$a_email"
+expect "$(sql "SELECT COUNT(*) FROM dbo.Users WHERE Email LIKE '%-$a@demo.invalid' AND LastSignInAt IS NULL;")" 4
+load_members "$work/a"
+expect "$(jq -r '[.members[] | select(.lastSignInAt != null) | .email] | join(",")' "$work/members.json")" "$a_email"
 # Sample customers (SandboxDefinition.Customers): more than a page in each tenant, different in
 # each, made by the visitor.
 expect "$(customers_in "$a_demo"),$(customers_in "$a_other")" "30,27"

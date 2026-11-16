@@ -76,8 +76,11 @@ public sealed class SandboxStore
     DateTime expiresAt = await connection.ExecuteScalarAsync<DateTime>(Command(
       "SELECT DATEADD(minute, @Minutes, SYSUTCDATETIME());", new { Minutes = minutes }, transaction, cancellationToken));
 
+    // The visitor is signed in as soon as this commits (DemoController), so their last sign-in
+    // is now, as password sign-in records it (UserStore.RecordSignInAsync). The sample members
+    // never sign in: Members shows "Never" for them, which is true.
     (int visitorId, byte[] securityStamp) = await InsertUserAsync(
-      connection, transaction, $"visitor-{suffix}@{SandboxDefinition.EmailDomain}", SandboxDefinition.VisitorName, expiresAt, cancellationToken);
+      connection, transaction, $"visitor-{suffix}@{SandboxDefinition.EmailDomain}", SandboxDefinition.VisitorName, expiresAt, signedIn: true, cancellationToken);
 
     Dictionary<string, int> tenantIds = new(StringComparer.Ordinal);
     foreach (string tenantName in SandboxDefinition.Tenants)
@@ -97,7 +100,7 @@ public sealed class SandboxStore
     foreach (SandboxSampleMember sample in SandboxDefinition.SampleMembers)
     {
       (int sampleId, _) = await InsertUserAsync(
-        connection, transaction, $"{sample.EmailName}-{suffix}@{SandboxDefinition.EmailDomain}", sample.DisplayName, expiresAt, cancellationToken);
+        connection, transaction, $"{sample.EmailName}-{suffix}@{SandboxDefinition.EmailDomain}", sample.DisplayName, expiresAt, signedIn: false, cancellationToken);
       foreach (SandboxMembership membership in sample.Memberships)
       {
         await InsertMembershipAsync(
@@ -198,17 +201,23 @@ public sealed class SandboxStore
   }
 
   private static async Task<(int Id, byte[] SecurityStamp)> InsertUserAsync(
-    SqlConnection connection, SqlTransaction transaction, string email, string displayName, DateTime expiresAt, CancellationToken cancellationToken)
+    SqlConnection connection,
+    SqlTransaction transaction,
+    string email,
+    string displayName,
+    DateTime expiresAt,
+    bool signedIn,
+    CancellationToken cancellationToken)
   {
     // No password: a sandbox user can't sign in except through the button that made it.
     const string sql = """
-      INSERT INTO dbo.Users (Email, DisplayName, IsDemo, ExpiresAt)
+      INSERT INTO dbo.Users (Email, DisplayName, IsDemo, ExpiresAt, LastSignInAt)
       OUTPUT inserted.Id, inserted.SecurityStamp
-      VALUES (@Email, @DisplayName, 1, @ExpiresAt);
+      VALUES (@Email, @DisplayName, 1, @ExpiresAt, CASE WHEN @SignedIn = 1 THEN SYSUTCDATETIME() END);
       """;
 
     return await connection.QuerySingleAsync<(int, byte[])>(Command(
-      sql, new { Email = email, DisplayName = displayName, ExpiresAt = expiresAt }, transaction, cancellationToken));
+      sql, new { Email = email, DisplayName = displayName, ExpiresAt = expiresAt, SignedIn = signedIn }, transaction, cancellationToken));
   }
 
   private static async Task<int> InsertTenantAsync(
