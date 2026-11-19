@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Link, useLocation, useSearchParams } from "react-router";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { ApiError } from "../api";
 import { Permissions, can } from "../auth/permissions";
 import { currentTenant } from "../auth/me";
@@ -29,7 +29,22 @@ export default function Customers() {
   const page = pageFrom(params.get("page"));
   const customers = useCustomers(search, page);
   const wide = useMediaQuery("(min-width: 48rem)");
-  const arrivedWith = useLocation().state as CustomersNotice | null;
+  const location = useLocation();
+  const navigate = useNavigate();
+  // The notice is copied out of history state when the page opens, and the state is then
+  // removed from the history entry (the same URL, replaced, without it). History state
+  // survives a reload, so leaving it there would say "Deleted: ..." again on every reload.
+  const [arrivedWith, setArrivedWith] = useState(
+    () => location.state as CustomersNotice | null,
+  );
+  useEffect(() => {
+    if (location.state) {
+      void navigate(
+        { pathname: location.pathname, search: location.search },
+        { replace: true, state: null },
+      );
+    }
+  }, [location, navigate]);
   const notice =
     arrivedWith && arrivedWith.tenantId === me?.currentTenantId
       ? arrivedWith.notice
@@ -55,6 +70,8 @@ export default function Customers() {
   }
 
   function goTo(nextSearch: string, nextPage: number) {
+    // A new search or page is a new view: the notice was about the last one.
+    setArrivedWith(null);
     const next = new URLSearchParams();
     if (nextSearch) {
       next.set("search", nextSearch);
