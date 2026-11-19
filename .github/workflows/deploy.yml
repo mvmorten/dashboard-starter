@@ -253,6 +253,7 @@ jobs:
             --setting-names Demo__Email Demo__Password --output none
 
       - name: Deploy the code
+        id: deploy-code
         run: |
           az webapp deploy --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
             --src-path out/api.zip --type zip --output none
@@ -262,6 +263,7 @@ jobs:
       # "Healthy" alone isn't enough: the previous version answers healthy too while the new
       # one starts. The build commit proves the new code is the one answering.
       - name: Check the live site
+        id: check-site
         run: |
           host=$(az webapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
             --query defaultHostName --output tsv)
@@ -275,5 +277,11 @@ jobs:
           done
           echo "The site didn't report healthy on build $BUILD_NUMBER ($BUILD_COMMIT) within 5 minutes. Last answer:"
           cat health.json || true
-          az webapp log tail --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" --timeout 30 || true
           exit 1
+
+      # When the app doesn't start, "Deploy the code" only says the worker didn't start, and
+      # the health check only sees the old version. The reason is in the container logs.
+      # (`az webapp log tail` was here before: it streams new lines only, so it showed nothing.)
+      - name: Show the app's container logs
+        if: failure() && (steps.deploy-code.outcome == 'failure' || steps.check-site.outcome == 'failure')
+        run: bash .github/scripts/app-service-logs.sh "$AZURE_RESOURCE_GROUP" "$AZURE_WEBAPP_NAME"
