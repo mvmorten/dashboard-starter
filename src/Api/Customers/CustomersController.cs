@@ -44,11 +44,27 @@ public sealed class CustomersController : ControllerBase
     _logger = logger;
   }
 
-  /// <summary>One page (25) of customers, sorted by name. <paramref name="search"/>: the start of a name or email.</summary>
+  /// <summary>
+  /// One page (25) of customers.
+  /// <paramref name="search"/>: the start of a name or email.
+  /// <paramref name="status"/>: Active or Inactive; none for both.
+  /// <paramref name="sort"/>: name (the default), email, status, updated or created.
+  /// <paramref name="dir"/>: asc (the default) or desc.
+  /// </summary>
+  /// <remarks>
+  /// A value it doesn't know is a 400 that names it, never a quiet fallback to the default: a
+  /// link with a typo should say so, not show a different order than it asks for. Values match
+  /// exactly, case included, as the front end writes them.
+  /// </remarks>
   [HttpGet]
   [Authorize(Policy = Permissions.CustomersView)]
   public async Task<ActionResult<CustomerListResponse>> List(
-    [FromQuery] string? search, [FromQuery] int page = 1, CancellationToken cancellationToken = default)
+    [FromQuery] string? search,
+    [FromQuery] string? status,
+    [FromQuery] string? sort,
+    [FromQuery] string? dir,
+    [FromQuery] int page = 1,
+    CancellationToken cancellationToken = default)
   {
     string? trimmed = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
     Dictionary<string, string[]> errors = new();
@@ -63,12 +79,30 @@ public sealed class CustomersController : ControllerBase
       errors["search"] = [$"Use {CustomerValidation.EmailMaxLength} characters or fewer."];
     }
 
+    if (status is not (null or CustomerValidation.Active or CustomerValidation.Inactive))
+    {
+      errors["status"] = [$"Use {CustomerValidation.Active} or {CustomerValidation.Inactive}, or leave it out for both."];
+    }
+
+    sort ??= "name";
+    if (!CustomerStore.SortColumns.ContainsKey(sort))
+    {
+      errors["sort"] = [$"Sort by one of: {string.Join(", ", CustomerStore.SortColumns.Keys)}."];
+    }
+
+    dir ??= "asc";
+    if (dir is not ("asc" or "desc"))
+    {
+      errors["dir"] = ["Use asc or desc."];
+    }
+
     if (errors.Count > 0)
     {
       return InvalidFields(errors);
     }
 
-    return Ok(await _customers.ListAsync(CurrentTenantId(), trimmed, page, cancellationToken));
+    CustomerListQuery query = new(trimmed, status, sort, dir == "desc", page);
+    return Ok(await _customers.ListAsync(CurrentTenantId(), query, cancellationToken));
   }
 
   [HttpGet("{id:int}")]
