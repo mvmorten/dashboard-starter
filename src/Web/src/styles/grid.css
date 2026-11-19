@@ -1,0 +1,182 @@
+/* The data grid's controls (src/Web/src/grid/): the toolbar above a list, sortable headers,
+   the column picker and the sort select. The table and cards themselves are in lists.css.
+   Phone first: the toolbar wraps, and every control is at least 44 px tall. */
+
+.grid-toolbar {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+/* The search form has its own bottom margin for pages without a toolbar. */
+.grid-toolbar .search-form {
+  margin-bottom: 0;
+}
+
+.grid-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+}
+
+/* A label above its select. Same size rules as the other inputs: 16 px text so iOS doesn't
+   zoom, 44 px tall to tap. */
+.grid-select {
+  display: grid;
+  gap: var(--space-1);
+  flex: 1 1 9rem;
+  min-width: 0;
+}
+
+.grid-select label {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.grid-select select {
+  width: 100%;
+  min-height: var(--target);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  color: var(--text);
+  font: inherit;
+}
+
+/* On a phone the sort select gets a row of its own: its options name a column and a direction
+   ("Updated: newest first"), which don't fit beside another control. */
+.grid-select-sort {
+  flex-basis: 100%;
+  order: -1;
+}
+
+.grid-clear {
+  flex: 0 0 auto;
+}
+
+/* On a wide screen the search and the controls share one row. */
+@media (min-width: 48rem) {
+  .grid-toolbar {
+    grid-template-columns: minmax(16rem, 1fr) auto;
+    align-items: end;
+  }
+
+  .grid-select {
+    flex: 0 0 auto;
+    min-width: 9rem;
+  }
+}
+
+/* A sortable header: the whole cell is the button, and it looks like a header, not a button. */
+.data-table thead th:has(.sort-button) {
+  padding: 0;
+}
+
+.sort-button {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  width: 100%;
+  min-height: var(--target);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sort-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.data-table th[aria-sort] .sort-button {
+  color: var(--text);
+}
+
+.sort-mark {
+  font-size: 0.75em;
+}
+
+/* An unsorted column shows, quietly, that it sorts. Always there, not on hover. */
+.sort-mark-off {
+  opacity: 0.5;
+}
+
+/* Show or hide columns. A <details>: the summary is the button, the list opens below it. */
+.column-picker {
+  position: relative;
+}
+
+.column-picker summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  list-style: none;
+}
+
+.column-picker summary::-webkit-details-marker {
+  display: none;
+}
+
+.column-picker summary::after {
+  content: "▾";
+  margin-left: var(--space-2);
+  font-size: 0.75em;
+}
+
+.column-picker[open] summary::after {
+  content: "▴";
+}
+
+.column-picker summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.column-picker fieldset {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  display: grid;
+  min-width: 12rem;
+  margin: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.column-picker label {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: var(--target);
+  padding: 0 var(--space-2);
+  cursor: pointer;
+}
+
+.column-picker input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+}
+
+/* An email address wraps only where emailParts.ts put a <wbr>: before a dot, after the @.
+   break-word is the last resort for one part too long for a phone's line, and unlike
+   "anywhere" it doesn't make a table column narrower than its longest part. */
+.email {
+  overflow-wrap: break-word;
+}

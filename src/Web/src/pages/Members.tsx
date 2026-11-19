@@ -3,7 +3,26 @@ import { ApiError } from "../api";
 import { Permissions, can } from "../auth/permissions";
 import { currentTenant, type Me } from "../auth/me";
 import { useMe } from "../auth/useMe";
-import { formatUtc } from "../format";
+import { formatUtc, formatUtcDate } from "../format";
+import { visibleKeys } from "../grid/columns";
+import { Email } from "../grid/Email";
+import {
+  ColumnPicker,
+  DataTable,
+  SortSelect,
+  type GridColumn,
+} from "../grid/Grid";
+import {
+  defaultListState,
+  firstDirOf,
+  isDefaultView,
+  sortBy,
+  withSort,
+  type ListSpec,
+} from "../grid/listState";
+import { sortRows, type SortValue } from "../grid/sortRows";
+import { useColumnChoices } from "../grid/useColumnChoices";
+import { useListState } from "../grid/useListState";
 import { useMediaQuery } from "../layout/useMediaQuery";
 import { usePageTitle } from "../layout/usePageTitle";
 import type { Member, Role } from "../members/members";
@@ -13,6 +32,32 @@ import {
   type MemberChange,
 } from "../members/useMembers";
 import NoAccess from "./NoAccess";
+
+// Members sorts in the browser: GET /api/members sends the whole tenant at once (there's no
+// paging until invites make lists long), so asking the server again for another order would
+// fetch the same rows. The sort is in the URL all the same (?sort=&dir=), like Customers.
+const memberListSpec: ListSpec = {
+  sorts: [
+    { key: "name", firstDir: "asc" },
+    { key: "email", firstDir: "asc" },
+    { key: "role", firstDir: "asc" },
+    { key: "status", firstDir: "asc" },
+    { key: "lastSignIn", firstDir: "desc" },
+  ],
+  defaultSort: "name",
+  filters: {},
+  paged: false,
+  searchable: false,
+};
+
+// What each sort compares (sortRows.ts breaks ties by user id).
+const sortValues: Record<string, (member: Member) => SortValue> = {
+  name: (member) => member.displayName,
+  email: (member) => member.email,
+  role: (member) => member.roleName,
+  status: (member) => member.status,
+  lastSignIn: (member) => member.lastSignInAt,
+};
 
 // The current tenant's members. Everyone with members.view sees the list; members.manage adds
 // a role picker and a disable button per member. The API enforces every rule shown here (not
@@ -24,26 +69,7 @@ export default function Members() {
   const change = useChangeMember();
   const [error, setError] = useState<string | null>(null);
   const wide = useMediaQuery("(min-width: 48rem)");
-
-  if (!can(me, Permissions.membersView)) {
-    return <NoAccess />;
-  }
-
-  if (members.isError) {
-    return members.error instanceof ApiError && members.error.status === 403 ? (
-      <NoAccess />
-    ) : (
-      <div role="alert">
-        <h1>Members</h1>
-        <p className="lead">The server didn&apos;t answer.</p>
-        <button type="button" onClick={() => void members.refetch()}>
-          Try again
-        </button>
-      </div>
-    );
-  }
-
-  const tenant = me ? currentTenant(me) : null;
+  const { state: view, show } = useListState(memberListSpec);
   const manage = can(me, Permissions.membersManage);
 
   async function apply(next: MemberChange) {
@@ -66,6 +92,38 @@ export default function Members() {
     manage,
     apply,
   };
+  const columns = memberColumns(controls);
+  const { choices, toggle } = useColumnChoices("members", columns);
+
+  if (!can(me, Permissions.membersView)) {
+    return <NoAccess />;
+  }
+
+  if (members.isError) {
+    return members.error instanceof ApiError && members.error.status === 403 ? (
+      <NoAccess />
+    ) : (
+      <div role="alert">
+        <h1>Members</h1>
+        <p className="lead">The server didn&apos;t answer.</p>
+        <button type="button" onClick={() => void members.refetch()}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  const tenant = me ? currentTenant(me) : null;
+  const sort = { key: view.sort, dir: view.dir };
+  const rows = members.data
+    ? sortRows(
+        members.data.members,
+        sortValues[view.sort] ?? sortValues.name,
+        (member) => member.userId,
+        view.dir,
+      )
+    : [];
+  const visible = visibleKeys(columns, choices);
 
   return (
     <>
@@ -79,12 +137,46 @@ export default function Members() {
         {error}
       </div>
 
+      <div className="grid-toolbar">
+        <div className="grid-controls">
+          {wide ? (
+            <ColumnPicker
+              columns={columns}
+              visible={visible}
+              onToggle={toggle}
+            />
+          ) : (
+            <SortSelect
+              columns={columns}
+              sort={sort}
+              firstDirOf={(key) => firstDirOf(memberListSpec, key)}
+              onSort={(key, dir) => show(withSort(view, key, dir))}
+            />
+          )}
+          {!isDefaultView(view, memberListSpec) && (
+            <button
+              type="button"
+              className="grid-clear"
+              onClick={() => show(defaultListState(memberListSpec))}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
       {members.isPending ? (
         <p role="status">Loading...</p>
       ) : wide ? (
-        <MemberTable members={members.data.members} controls={controls} />
+        <DataTable
+          columns={columns.filter((column) => visible.includes(column.key))}
+          rows={rows}
+          rowKey={(member) => member.userId}
+          sort={sort}
+          onSort={(key) => show(sortBy(view, key, memberListSpec))}
+        />
       ) : (
-        <MemberCards members={members.data.members} controls={controls} />
+        <MemberCards members={rows} controls={controls} />
       )}
     </>
   );
@@ -98,54 +190,66 @@ interface ControlsContext {
   apply: (change: MemberChange) => Promise<void>;
 }
 
-function MemberTable({
-  members,
-  controls,
-}: {
-  members: Member[];
-  controls: ControlsContext;
-}) {
-  return (
-    <div className="table-scroll">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th scope="col">Member</th>
-            <th scope="col">Role</th>
-            <th scope="col">Status</th>
-            <th scope="col">Last sign-in</th>
-            {controls.manage && (
-              <th scope="col">
-                <span className="visually-hidden">Access</span>
-              </th>
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {members.map((member) => (
-            <tr key={member.userId}>
-              <th scope="row">
-                <MemberName member={member} controls={controls} />
-                <span className="member-email">{member.email}</span>
-              </th>
-              <td className="nowrap">
-                <RoleControl member={member} controls={controls} />
-              </td>
-              <td>
-                <StatusBadge member={member} />
-              </td>
-              <td className="nowrap">{formatSignIn(member.lastSignInAt)}</td>
-              {controls.manage && (
-                <td>
-                  <StatusButton member={member} controls={controls} />
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+// The columns, with the Access column (the disable button) only for someone who can manage
+// members. Member names the row, so it can't be hidden; Access holds controls, not data, so it
+// stays too.
+function memberColumns(controls: ControlsContext): GridColumn<Member>[] {
+  const columns: GridColumn<Member>[] = [
+    {
+      key: "name",
+      label: "Member",
+      hideable: false,
+      sortKey: "name",
+      rowHeader: true,
+      cell: (member) => <MemberName member={member} controls={controls} />,
+    },
+    {
+      key: "email",
+      label: "Email",
+      hideable: true,
+      sortKey: "email",
+      className: "member-email",
+      cell: (member) => <Email address={member.email} />,
+    },
+    {
+      key: "role",
+      label: "Role",
+      hideable: true,
+      sortKey: "role",
+      className: "nowrap",
+      cell: (member) => <RoleControl member={member} controls={controls} />,
+    },
+    {
+      key: "status",
+      label: "Status",
+      hideable: true,
+      sortKey: "status",
+      sortWords: { asc: "Active first", desc: "Disabled first" },
+      cell: (member) => <StatusBadge member={member} />,
+    },
+    {
+      key: "lastSignIn",
+      label: "Last sign-in",
+      hideable: true,
+      sortKey: "lastSignIn",
+      sortWords: { asc: "never, then oldest", desc: "newest first" },
+      className: "nowrap",
+      cell: (member) =>
+        member.lastSignInAt ? formatUtcDate(member.lastSignInAt) : "Never",
+    },
+  ];
+
+  if (controls.manage) {
+    columns.push({
+      key: "access",
+      label: "Access",
+      hideable: false,
+      labelHidden: true,
+      cell: (member) => <StatusButton member={member} controls={controls} />,
+    });
+  }
+
+  return columns;
 }
 
 function MemberCards({
@@ -165,7 +269,9 @@ function MemberCards({
             </p>
             <StatusBadge member={member} />
           </div>
-          <p className="member-email">{member.email}</p>
+          <p className="member-email">
+            <Email address={member.email} />
+          </p>
           <p className="member-card-meta">
             Last sign-in: {formatSignIn(member.lastSignInAt)}
           </p>
@@ -200,7 +306,8 @@ function MemberName({
   );
 }
 
-// A picker for someone who can manage members, plain text for everyone else.
+// A picker for someone who can manage members, plain text for everyone else, and for your own
+// row: you can't change your own role, and StatusButton says so where it can be read.
 function RoleControl({
   member,
   controls,
@@ -208,18 +315,16 @@ function RoleControl({
   member: Member;
   controls: ControlsContext;
 }) {
-  if (!controls.manage) {
+  if (!controls.manage || isSelf(member, controls)) {
     return <>{member.roleName}</>;
   }
 
-  const self = isSelf(member, controls);
   return (
     <select
       className="role-select"
       aria-label={`Role for ${member.displayName}`}
       value={member.roleId}
-      disabled={!controls.enabled || self}
-      title={self ? "You can't change your own role." : undefined}
+      disabled={!controls.enabled}
       onChange={(event) =>
         void controls.apply({
           kind: "role",
@@ -237,6 +342,8 @@ function RoleControl({
   );
 }
 
+// Your own row says why there's nothing to press, in text anyone can read. (This was a
+// tooltip, which only a mouse can show.)
 function StatusButton({
   member,
   controls,
@@ -244,14 +351,20 @@ function StatusButton({
   member: Member;
   controls: ControlsContext;
 }) {
-  const self = isSelf(member, controls);
+  if (isSelf(member, controls)) {
+    return (
+      <span className="member-self-note">
+        You can&apos;t change your own role or access.
+      </span>
+    );
+  }
+
   const active = member.status === "Active";
   return (
     <button
       type="button"
       className="member-status-button"
-      disabled={!controls.enabled || self}
-      title={self ? "You can't disable yourself." : undefined}
+      disabled={!controls.enabled}
       aria-label={`${active ? "Disable" : "Enable"} ${member.displayName}`}
       onClick={() =>
         void controls.apply({

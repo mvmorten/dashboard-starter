@@ -1,19 +1,23 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMe } from "../auth/useMe";
+import { apiQuery, type ListState } from "../grid/listState";
 import {
   customerListQueryKey,
+  customerListSpec,
   customerQueryKey,
   fetchCustomer,
   fetchCustomers,
 } from "./customers";
 
-// One page of the current tenant's customers. While the next page or search loads, the last
-// one stays on screen instead of a flash of "Loading...".
-export function useCustomers(search: string, page: number) {
+// One page of the current tenant's customers, for a view of the list (grid/listState.ts).
+// While the next page, search, filter or sort loads, the last one stays on screen instead of a
+// flash of "Loading...".
+export function useCustomers(view: ListState) {
   const { data: me } = useMe();
+  const query = apiQuery(view, customerListSpec).toString();
   return useQuery({
-    queryKey: customerListQueryKey(me?.currentTenantId ?? null, search, page),
-    queryFn: ({ signal }) => fetchCustomers(search, page, signal),
+    queryKey: customerListQueryKey(me?.currentTenantId ?? null, query),
+    queryFn: ({ signal }) => fetchCustomers(query, signal),
     placeholderData: keepPreviousData,
     // A 403 means "not for you", and asking again won't change that.
     retry: false,

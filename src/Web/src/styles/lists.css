@@ -1,6 +1,6 @@
 /* Lists of records, shared by Members and Customers. Phone first: a list of cards. From 48rem
-   (the pages switch with useMediaQuery and the same query), a table. No grid library: that's
-   its own step. */
+   (the pages switch with useMediaQuery and the same query), a table. The grid's controls
+   (sorting, columns) are in grid.css. */
 
 .card-list {
   margin: 0;

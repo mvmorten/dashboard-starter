@@ -11,6 +11,7 @@ import "./styles/shell.css";
 import "./styles/pages.css";
 import "./styles/sign-in.css";
 import "./styles/lists.css";
+import "./styles/grid.css";
 import "./styles/members.css";
 import "./styles/customers.css";
 

@@ -32,11 +32,16 @@
   flex: 1 1 10rem;
 }
 
-/* A long address wraps instead of widening the page. */
+/* A long address wraps before a dot or after the @ (grid/Email.tsx), never mid-word. */
 .member-email {
   margin: 0;
   color: var(--muted);
-  overflow-wrap: anywhere;
+}
+
+/* Your own row, where the controls would be: why there's nothing to press. */
+.member-self-note {
+  color: var(--muted);
+  font-size: 0.875rem;
 }
 
 .member-you {
@@ -70,10 +75,4 @@
 
 .member-status-button {
   white-space: nowrap;
-}
-
-/* The email sits under the name, so the table needs one wide column, not two. */
-.data-table .member-email {
-  display: block;
-  font-weight: 400;
 }
