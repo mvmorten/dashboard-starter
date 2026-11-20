@@ -1,6 +1,6 @@
-// Build information in the shell: the footer line, and the banner that appears when a deploy
-// landed after this tab loaded. Both were on the health page in step 3; they live in the
-// shell now so they show on every page.
+// Build information: the banner that appears when a deploy landed after this tab loaded
+// (in the shell, so it shows on every page), and the build line (on the health page only;
+// it was in the shell's footer until it proved to be noise on every other page).
 
 import { isStale, pageBuild, repoUrl, type BuildInfo } from "../build";
 import { useHealth } from "../health/useHealth";

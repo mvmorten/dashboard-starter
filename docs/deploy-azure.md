@@ -158,7 +158,7 @@ Merge anything to `main`. To redeploy the current `main` without a new commit, o
 6. Sets the app settings: the connection string (the API's login, not the admin), `CanonicalHost`, `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` (so the app sees HTTPS and each visitor's IP behind App Service's front end), where the Data Protection keys live, `Demo__SandboxesEnabled` (`true` when `DEMO_ENABLED` is), and, if `EMAIL_ENABLED` is `true`, the sender and Resend key for password reset emails (step 7). With email on, it first checks the settings and the domain's DNS records, and stops if something is missing.
 7. Deploys the zip and waits for `/api/health` to report healthy **and** the commit it just deployed. Healthy alone could be the previous version, still answering while the new one starts.
 
-Then open `https://<APP>.azurewebsites.net`. The footer shows the build number and commit. If a deploy lands while a tab is open, the page notices on its next health check and offers a reload.
+Then open `https://<APP>.azurewebsites.net`. The Health page shows the build number and commit. If a deploy lands while a tab is open, the page notices on its next health check and offers a reload.
 
 Forks: CI skips the deploy job unless `AZURE_WEBAPP_NAME` is set, so a fork stays green without any Azure setup.
 
