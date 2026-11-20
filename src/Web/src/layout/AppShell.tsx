@@ -1,7 +1,7 @@
 import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import { useLocation } from "react-router";
 import { useMe } from "../auth/useMe";
-import { BuildFooter, StaleNotice } from "./BuildNotices";
+import { StaleNotice } from "./BuildNotices";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import { useMediaQuery } from "./useMediaQuery";
@@ -87,7 +87,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </p>
           )}
           {children}
-          <BuildFooter />
         </div>
       </main>
     </div>

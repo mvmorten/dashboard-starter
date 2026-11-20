@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { DatabaseHealth } from "../health/health";
+import { BuildFooter } from "../layout/BuildNotices";
 import { useHealth } from "../health/useHealth";
 import { usePageTitle } from "../layout/usePageTitle";
 
@@ -31,6 +32,8 @@ export default function Health() {
       >
         {isFetching ? "Checking..." : "Check again"}
       </button>
+
+      <BuildFooter />
     </>
   );
 }
