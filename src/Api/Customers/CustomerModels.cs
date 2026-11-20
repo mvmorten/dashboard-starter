@@ -9,7 +9,20 @@ namespace DashboardStarter.Api.Customers;
 public sealed record CustomerListResponse(IReadOnlyList<CustomerListItem> Items, int Total, int Page, int PageSize);
 
 /// <summary>A row of the list: what the table shows, no more.</summary>
-public sealed record CustomerListItem(int Id, string Name, string? Email, string? Phone, string Status);
+/// <param name="CreatedAt">UTC, like <see cref="CustomerResponse.CreatedAt"/>.</param>
+/// <param name="UpdatedAt">UTC: the last change.</param>
+public sealed record CustomerListItem(
+  int Id, string Name, string? Email, string? Phone, string Status, DateTime CreatedAt, DateTime UpdatedAt);
+
+/// <summary>
+/// GET /api/customers' query, after the controller has checked it: every value is one the
+/// store accepts.
+/// </summary>
+/// <param name="Search">Trimmed, or null for none. Matches the start of the name or email.</param>
+/// <param name="Status">"Active", "Inactive", or null for both.</param>
+/// <param name="Sort">A key of <see cref="CustomerStore.SortColumns"/>.</param>
+/// <param name="Page">1-based.</param>
+public sealed record CustomerListQuery(string? Search, string? Status, string Sort, bool Descending, int Page);
 
 /// <summary>One customer, as GET /api/customers/{id} returns it, and in the 409 body as "current".</summary>
 /// <param name="UpdatedByName">Who made the last change, for "Sam Rivera changed this". Null if nobody did (a data migration).</param>

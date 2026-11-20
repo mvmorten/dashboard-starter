@@ -2,6 +2,7 @@
 // CustomerModels.cs. The tenant is always the session's current one; no tenant id is sent.
 
 import { ApiError, apiDelete, apiGet, apiPost, apiPut } from "../api";
+import type { ListSpec } from "../grid/listState";
 
 export type CustomerStatus = "Active" | "Inactive";
 
@@ -11,7 +12,26 @@ export interface CustomerListItem {
   email: string | null;
   phone: string | null;
   status: CustomerStatus;
+  // ISO 8601, UTC, without a zone marker (format.ts adds it).
+  createdAt: string;
+  updatedAt: string;
 }
+
+// What the list can search, filter and sort by: the values GET /api/customers accepts
+// (CustomersController.List), which says 400 to anything else.
+export const customerListSpec: ListSpec = {
+  sorts: [
+    { key: "name", firstDir: "asc" },
+    { key: "email", firstDir: "asc" },
+    { key: "status", firstDir: "asc" },
+    { key: "updated", firstDir: "desc" },
+    { key: "created", firstDir: "desc" },
+  ],
+  defaultSort: "name",
+  filters: { status: ["Active", "Inactive"] },
+  paged: true,
+  searchable: true,
+};
 
 export interface CustomerList {
   items: CustomerListItem[];
@@ -102,28 +122,21 @@ export function sameFields(a: CustomerFields, b: CustomerFields): boolean {
 // one, even for a moment.
 export const customersQueryKey = ["customers"] as const;
 
-export function customerListQueryKey(
-  tenantId: number | null,
-  search: string,
-  page: number,
-) {
-  return [...customersQueryKey, tenantId, "list", search, page] as const;
+// The list's key holds its whole query string (apiQuery in grid/listState.ts), so each view
+// is cached on its own.
+export function customerListQueryKey(tenantId: number | null, query: string) {
+  return [...customersQueryKey, tenantId, "list", query] as const;
 }
 
 export function customerQueryKey(tenantId: number | null, id: number) {
   return [...customersQueryKey, tenantId, "one", id] as const;
 }
 
+// query: search, status, sort, dir and page, as apiQuery writes them.
 export function fetchCustomers(
-  search: string,
-  page: number,
+  query: string,
   signal: AbortSignal,
 ): Promise<CustomerList> {
-  const query = new URLSearchParams({ page: String(page) });
-  if (search) {
-    query.set("search", search);
-  }
-
   return apiGet<CustomerList>(`/api/customers?${query}`, { signal });
 }
 

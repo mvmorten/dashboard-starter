@@ -152,7 +152,7 @@ Customers is the sample module: the pattern to copy for your own tenant-owned re
 
 | Endpoint | Needs | |
 | --- | --- | --- |
-| `GET /api/customers?search=&page=` | `customers.view` | 25 a page, sorted by name then id, with the total. `search` matches the start of a name or email; `%`, `_` and `[` match only themselves. |
+| `GET /api/customers?search=&status=&sort=&dir=&page=` | `customers.view` | 25 a page, with the total. `search` matches the start of a name or email; `%`, `_` and `[` match only themselves. `status`: `Active` or `Inactive` (none for both). `sort`: `name` (the default), `email`, `status`, `updated` or `created`; `dir`: `asc` (the default) or `desc`. Ties go by id, in the same direction. Any other value is a `400` that names it. |
 | `GET /api/customers/{id}` | `customers.view` | One customer, with its `rowVersion`. |
 | `POST /api/customers` | `customers.edit` | `201` with the new customer. |
 | `PUT /api/customers/{id}` | `customers.edit` | The fields and the `rowVersion` you loaded. `200`, `404`, or `409` with the current record. |
@@ -160,9 +160,21 @@ Customers is the sample module: the pattern to copy for your own tenant-owned re
 
 - **Validation is on the server**: `400` with ProblemDetails `errors` keyed by field (`name`, `email`, ...). Text is trimmed, an empty optional field is stored as `NULL`, and the lengths are the column lengths. Shared rules for the front end come with the forms step.
 - **Email isn't unique.** Two customers can share an address (a family, a shared inbox). User accounts are different: `Users.Email` is unique, because it's how you sign in.
-- **The list** (`/customers`) is a table on a wide screen and cards on a phone, with a search box and 25 a page. The search and the page are in the URL, so Back, a reload and a shared link show the same page.
+- **The list** (`/customers`) is the data grid (below): a table on a wide screen and cards on a phone, with a search box, a status filter, sorting, and 25 a page. All of it is in the URL, so Back, a reload and a shared link show the same page.
 - **The form** (`/customers/new`, `/customers/{id}`) shows the server's field errors under each field; there are no client-side rules yet. Without `customers.edit` the same page shows the fields to read, and there's no "New customer" button. Delete asks once, on the page. Leaving with unsaved changes asks first: closing the tab, or following a link. React Router's `useBlocker` only works in its data mode, so `useUnsavedChangesWarning` listens for link clicks itself. It doesn't catch the browser's Back button.
-- **Not yet:** sortable columns and filters (the data grid step), shared validation rules (the forms step), restoring deleted customers and history (the audit log step).
+- **Not yet:** shared validation rules (the forms step), restoring deleted customers and history (the audit log step).
+
+### The data grid
+
+Customers and Members share one grid, in `src/Web/src/grid/`. It's built by hand, without a grid library: what it needs is a list of columns, header buttons, a sort select for phones and a column picker, about the size of the code a library would need to set it up. TanStack Table would start to earn its place with column resizing or reordering, multi-column sort, or very long lists in the browser; none of those are here yet.
+
+- **The view is in the URL.** `?search=&status=&sort=&dir=&page=`, with the API's own names and values, so the address bar shows the request the list makes. Defaults are left out: the plain list's URL is just `/customers`. A new search, filter or sort goes back to page 1. **Clear** appears when anything differs from the default. The rules are in `listState.ts`, a pure module with tests.
+- **Follow a sort from click to SQL:** the header button calls `sortBy()` (`listState.ts`), the URL becomes `?sort=updated&dir=desc`, `useCustomers` sends the same to `GET /api/customers`, the controller checks `updated` against `CustomerStore.SortColumns`, and the query ends `ORDER BY c.UpdatedAt DESC, c.Id DESC`. The request's text only ever picks a key in that list; it never reaches the SQL.
+- **Headers are buttons** with `aria-sort` on the sorted column. The first click sorts text A to Z and dates newest first; a second click reverses it. On a phone there are no headers to tap, so a select picks the column and the direction together.
+- **Column choices** (wide screens only; the name column can't be hidden) are saved in `localStorage`, per user and grid. It's a display preference and losing it costs a click, so it doesn't earn a table. They stay out of the URL on purpose: a shared link shows the same rows, not your columns.
+- **Long emails wrap cleanly**: only before a dot or after the @ (`emailParts.ts`), never mid-word. Cutting them short with an ellipsis would hide the address behind a hover tooltip, and nothing here may need hover. A column too narrow for an address's longest part makes the table scroll in its own box.
+- **Members sorts in the browser.** `GET /api/members` sends the whole tenant at once, so another order would fetch the same rows again. `sortRows.ts` uses the API's rules: one column, then the id, empty values first when ascending. When invites make member lists long, Members can move to server paging without changing the grid.
+- **Indexes:** the Name and Email sorts use 0013's indexes; Updated and Created have their own (0015), led by `TenantId` and filtered to live rows. Status has two values and sorts the tenant's rows each time, which is cheap at the sizes this starter is for. With 50,000 customers in one tenant, the Updated sort reads 25 rows from its index backwards, with no sort.
 
 ### Edit conflicts: the three-way merge
 
@@ -241,7 +253,7 @@ The goal is the 80% every dashboard app needs on day one:
 - [x] Password reset and change password
 - [x] Tenants: one account across tenants, tenant-scoped data, Row-Level Security
 - [x] Users, roles, and permissions, enforced on both API and UI
-- [ ] A reusable data grid with server-side paging, sorting, and filtering
+- [x] A reusable data grid with server-side paging, sorting, and filtering
 - [x] CRUD example module showing the end-to-end pattern, including edit conflicts
 - [ ] Forms with shared validation rules
 - [ ] Settings and user profile pages

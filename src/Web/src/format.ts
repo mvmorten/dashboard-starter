@@ -2,9 +2,17 @@
 // without a zone marker (SQL Server's datetime2), so add one before converting: without it,
 // the browser would read the time as local.
 export function formatUtc(value: string): string {
-  const utc = /[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`;
-  return new Date(utc).toLocaleString(undefined, {
+  return fromUtc(value).toLocaleString(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+// The date alone, for a list's columns where the time would crowd out the names.
+export function formatUtcDate(value: string): string {
+  return fromUtc(value).toLocaleDateString(undefined, { dateStyle: "medium" });
+}
+
+function fromUtc(value: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`);
 }

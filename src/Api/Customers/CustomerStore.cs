@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -35,17 +36,36 @@ public sealed class CustomerStore
   // escape character the queries name (ESCAPE N'\').
   private const char LikeEscape = '\\';
 
-  // The two WHERE clauses the list can use, fixed here. Picking one in code (rather than writing
-  // "@Prefix IS NULL OR ...") gives each its own plan, and the search one can use the indexes.
-  private const string AllLiveRows = """
+  /// <summary>
+  /// The columns the list can sort by: the API's <c>sort</c> value, and the SQL it becomes. This
+  /// is the only way a sort reaches the query. The request's text picks a key here and is never
+  /// put into SQL itself; a key that isn't here is a 400 (the controller checks).
+  /// </summary>
+  public static readonly IReadOnlyDictionary<string, string> SortColumns = new Dictionary<string, string>(StringComparer.Ordinal)
+  {
+    ["name"] = "c.Name",
+    ["email"] = "c.Email",
+    ["status"] = "c.Status",
+    ["updated"] = "c.UpdatedAt",
+    ["created"] = "c.CreatedAt",
+  };
+
+  // The pieces of the list's WHERE clause, fixed here. Adding one in code (rather than writing
+  // "@Prefix IS NULL OR ...") gives each combination its own plan, and one that searches can use
+  // the indexes.
+  private const string LiveRows = """
     WHERE c.TenantId = @TenantId
       AND c.DeletedAt IS NULL
     """;
 
-  private const string MatchingLiveRows = """
-    WHERE c.TenantId = @TenantId
-      AND c.DeletedAt IS NULL
+  private const string SearchMatches = """
+
       AND (c.Name LIKE @Prefix ESCAPE N'\' OR c.Email LIKE @Prefix ESCAPE N'\')
+    """;
+
+  private const string StatusMatches = """
+
+      AND c.Status = @Status
     """;
 
   private readonly SqlConnectionFactory _connectionFactory;
@@ -57,27 +77,38 @@ public sealed class CustomerStore
     _demoOptions = demoOptions.Value;
   }
 
-  /// <summary>One page of live customers, sorted by name then id. <paramref name="search"/> matches the start of the name or email.</summary>
-  public async Task<CustomerListResponse> ListAsync(int tenantId, string? search, int page, CancellationToken cancellationToken)
+  /// <summary>
+  /// One page of live customers, in the query's sort, then by id in the same direction so rows
+  /// that tie keep one order across pages.
+  /// </summary>
+  public async Task<CustomerListResponse> ListAsync(int tenantId, CustomerListQuery query, CancellationToken cancellationToken)
   {
-    string where = search is null ? AllLiveRows : MatchingLiveRows;
+    // Every piece below is a constant from this class: the WHERE pieces above, a column from
+    // SortColumns, ASC or DESC. Values (the tenant, the search, the status, the page) are
+    // parameters.
+    string where = LiveRows
+      + (query.Search is null ? "" : SearchMatches)
+      + (query.Status is null ? "" : StatusMatches);
+    string column = SortColumns[query.Sort];
+    string direction = query.Descending ? "DESC" : "ASC";
     string sql = $"""
       SELECT COUNT(*)
       FROM dbo.Customers AS c
       {where};
 
-      SELECT c.Id, c.Name, c.Email, c.Phone, c.Status
+      SELECT c.Id, c.Name, c.Email, c.Phone, c.Status, c.CreatedAt, c.UpdatedAt
       FROM dbo.Customers AS c
       {where}
-      ORDER BY c.Name, c.Id
+      ORDER BY {column} {direction}, c.Id {direction}
       OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
       """;
 
     object parameters = new
     {
       TenantId = tenantId,
-      Prefix = search is null ? null : EscapeLike(search) + "%",
-      Offset = (page - 1) * PageSize,
+      Prefix = query.Search is null ? null : EscapeLike(query.Search) + "%",
+      query.Status,
+      Offset = (query.Page - 1) * PageSize,
       PageSize,
     };
 
@@ -86,7 +117,7 @@ public sealed class CustomerStore
       new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
     int total = await results.ReadSingleAsync<int>();
     List<CustomerListItem> items = (await results.ReadAsync<CustomerListItem>()).ToList();
-    return new CustomerListResponse(items, total, page, PageSize);
+    return new CustomerListResponse(items, total, query.Page, PageSize);
   }
 
   /// <summary>A live customer, or null if there's none with this id in this tenant (or it's deleted).</summary>

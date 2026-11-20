@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Customers API checks against a running API, with curl, jq and sqlcmd: each role gets exactly its
-# permissions, validation, paging and search (with LIKE's wildcards taken literally), edit
-# conflicts (409 with the current record), soft delete, tenant isolation, and the demo row cap.
+# permissions, validation, paging and search (with LIKE's wildcards taken literally), sorting and
+# the status filter, edit conflicts (409 with the current record), soft delete, tenant isolation,
+# and the demo row cap.
 # CI runs this (.github/workflows/ci.yml) against its own API instance. Locally, after migrate,
 # seed and the users below, from the repo root (Git Bash on Windows: export MSYS_NO_PATHCONV=1,
 # and a TMPDIR written C:/like/this):
@@ -199,7 +200,131 @@ version=$(json .rowVersion)
 expect "$(remove "$work/admin" "$id" "$version")" 204
 expect "$(update "$work/mem" "$id" "$tag my edit" "$version")" 404
 
-echo "11. The demo row cap: 200 customers, deleted ones counted; real tenants have none"
+echo "11. Sort and filter: each sort both ways, ties broken by id, with search, paging and status"
+# Four customers in Globex, made so every sort has a tie that only the id can break:
+#   name  email          status    created  updated
+#   a     c@...          Active    T3       T1
+#   b     a@...          Inactive  T1       T2
+#   c     b@...          Active    T2       T2       (ties b on updated)
+#   c     (none)         Inactive  T2       T3       (ties the other c on name and created)
+# Ids go up in that order. The times are set in SQL, as only a test can.
+expect "$(post "$work/mem" /api/auth/switch-tenant "{\"tenantId\":$globex}")" 200
+st="st$tag"
+ids=()
+for row in "a|Active|c@$st.example" "b|Inactive|a@$st.example" "c|Active|b@$st.example" "c|Inactive|"; do
+  IFS="|" read -r name row_status email <<< "$row"
+  expect "$(create "$work/mem" "$st $name" "$row_status" "$email")" 201
+  ids+=("$(json .id)")
+done
+a=${ids[0]} b=${ids[1]} c=${ids[2]} d=${ids[3]}
+at() { echo "DATEADD(day, $1, '2026-01-01')"; }
+in_tenant "$globex" "UPDATE dbo.Customers SET CreatedAt = $(at 3), UpdatedAt = $(at 1) WHERE Id = $a;
+  UPDATE dbo.Customers SET CreatedAt = $(at 1), UpdatedAt = $(at 2) WHERE Id = $b;
+  UPDATE dbo.Customers SET CreatedAt = $(at 2), UpdatedAt = $(at 2) WHERE Id = $c;
+  UPDATE dbo.Customers SET CreatedAt = $(at 2), UpdatedAt = $(at 3) WHERE Id = $d;"
+# And one in Acme with the same prefix, which no sort in Globex may show.
+expect "$(post "$work/mem" /api/auth/switch-tenant "{\"tenantId\":$acme}")" 200
+expect "$(create "$work/mem" "$st acme" Active "0@$st.example")" 201
+acme_st=$(json .id)
+expect "$(post "$work/mem" /api/auth/switch-tenant "{\"tenantId\":$globex}")" 200
+
+# list <jar> <name=value>... -> the HTTP status of GET /api/customers with those query values.
+list() {
+  local jar=$1 args=()
+  shift
+  for pair in "$@"; do args+=(--data-urlencode "$pair"); done
+  status "$jar" -G "${args[@]}" "$BASE/api/customers"
+}
+order() { json '[.items[].id] | map(tostring) | join(" ")'; }
+# sorted <sort> <dir> <expected ids>: the page, searched to these four, is in exactly this order.
+sorted() {
+  expect "$(list "$work/mem" "search=$st" "sort=$1" "dir=$2")" 200
+  expect "$(order)" "$3"
+}
+sorted name asc "$a $b $c $d"
+sorted name desc "$d $c $b $a"
+# SQL Server sorts NULL first, ascending: the customer without an email.
+sorted email asc "$d $b $c $a"
+sorted email desc "$a $c $b $d"
+sorted status asc "$a $c $b $d"
+sorted status desc "$d $b $c $a"
+sorted updated asc "$a $b $c $d"
+sorted updated desc "$d $c $b $a"
+sorted created asc "$b $c $d $a"
+sorted created desc "$a $d $c $b"
+echo "    Leaving sort and dir out is name, ascending"
+expect "$(list "$work/mem" "search=$st")" 200
+expect "$(order)" "$a $b $c $d"
+echo "    The list has the dates the Updated and Created columns show"
+expect "$(json '.items[0].updatedAt | startswith("2026-01-02")'),$(json '.items[0].createdAt | startswith("2026-01-04")')" "true,true"
+
+echo "    Status filters, and combines with the sort"
+expect "$(list "$work/mem" "search=$st" "status=Inactive")" 200
+expect "$(order),$(json .total)" "$b $d,2"
+expect "$(list "$work/mem" "search=$st" "status=Active" "sort=updated" "dir=desc")" 200
+expect "$(order),$(json .total)" "$c $a,2"
+
+echo "    Ties stay in one order across pages, for every sort"
+# The 27 pg$tag customers from section 6 are in Globex. Give them all the same time, email and
+# status, so every sort is a tie and only the id decides; then page 1 and page 2 together
+# must be every row once, in id order.
+in_tenant "$globex" "UPDATE dbo.Customers SET CreatedAt = $(at 5), UpdatedAt = $(at 5), Email = N'same@$st.example'
+  WHERE Name LIKE N'pg$tag %';"
+pg_asc=$(in_tenant "$globex" "SELECT STRING_AGG(CAST(Id AS varchar(12)), ' ') WITHIN GROUP (ORDER BY Id) FROM dbo.Customers WHERE Name LIKE N'pg$tag %' AND DeletedAt IS NULL;")
+pg_desc=$(tr ' ' '\n' <<< "$pg_asc" | tac | paste -sd ' ')
+for sort in email status updated created; do
+  for dir in asc desc; do
+    expect "$(list "$work/mem" "search=pg$tag" "sort=$sort" "dir=$dir")" 200
+    first=$(order)
+    expect "$(list "$work/mem" "search=pg$tag" "sort=$sort" "dir=$dir" "page=2")" 200
+    expected=$pg_asc
+    if [ "$dir" = desc ]; then expected=$pg_desc; fi
+    expect "$first $(order)" "$expected"
+  done
+done
+
+echo "    Soft-deleted rows stay out of every sort and filter"
+expect "$(get "$work/mem" "$c")" 200
+expect "$(remove "$work/mem" "$c" "$(json .rowVersion)")" 204
+for sort in name email status updated created; do
+  expect "$(list "$work/mem" "search=$st" "sort=$sort" "dir=desc")" 200
+  if json '.items[].id' | grep -qx "$c"; then echo "Deleted customer $c is in the $sort sort."; exit 1; fi
+  expect "$(json .total)" 3
+done
+expect "$(list "$work/mem" "search=$st" "status=Active")" 200
+expect "$(order),$(json .total)" "$a,1"
+
+echo "    Sorting can't reach another tenant: Acme's $st customer is in no Globex sort, and the other way round"
+# The search matches both tenants' $st customers, so a leak would show as an extra row.
+for sort in name email status updated created; do
+  for dir in asc desc; do
+    expect "$(list "$work/mem" "search=$st" "sort=$sort" "dir=$dir")" 200
+    if json '.items[].id' | grep -qx "$acme_st"; then echo "Acme's customer is in Globex's $sort $dir sort."; exit 1; fi
+    expect "$(json .total)" 3
+  done
+done
+expect "$(post "$work/mem" /api/auth/switch-tenant "{\"tenantId\":$acme}")" 200
+for sort in name email status updated created; do
+  for dir in asc desc; do
+    expect "$(list "$work/mem" "search=$st" "sort=$sort" "dir=$dir")" 200
+    expect "$(order),$(json .total)" "$acme_st,1"
+  done
+done
+
+echo "    An empty value is the same as leaving it out"
+expect "$(list "$work/mem" "search=$st" "sort=" "dir=" "status=")" 200
+expect "$(order)" "$acme_st"
+
+echo "    Unknown values are a 400 that names them, never a quiet default"
+for bad in "sort=Name" "sort=bogus" "sort=c.Name; DROP TABLE dbo.Customers" "dir=up" "dir=DESC" \
+  "status=Maybe" "status=active"; do
+  expect "$(list "$work/mem" "$bad")" 400
+  expect "$(json '.errors | keys | join(",")')" "${bad%%=*}"
+done
+expect "$(list "$work/mem" "sort=bogus" "dir=up" "status=Maybe")" 400
+expect "$(json '.errors | keys | join(",")')" "dir,sort,status"
+
+echo "12. The demo row cap: 200 customers, deleted ones counted; real tenants have none"
 expect "$(start_demo "$work/demo")" 204
 expect "$(status "$work/demo" "$BASE/api/auth/me")" 200
 demo=$(json .currentTenantId)
