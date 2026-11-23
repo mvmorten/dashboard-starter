@@ -9,6 +9,7 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/shell.css";
 import "./styles/pages.css";
+import "./styles/forms.css";
 import "./styles/sign-in.css";
 import "./styles/lists.css";
 import "./styles/grid.css";

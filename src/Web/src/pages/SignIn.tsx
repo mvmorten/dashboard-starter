@@ -9,14 +9,17 @@ import {
 } from "react-router";
 import { ApiError, refreshAntiforgeryToken } from "../api";
 import AuthCard from "../auth/AuthCard";
-import PasswordField from "../auth/PasswordField";
 import { safeReturnUrl, signIn, startDemo } from "../auth/session";
 import { useMe } from "../auth/useMe";
 import { useSignInInfo } from "../auth/useSignInInfo";
+import PasswordField from "../forms/PasswordField";
+import TextField from "../forms/TextField";
 import { usePageTitle } from "../layout/usePageTitle";
 
 // A plain form with the autocomplete values password managers look for ("username",
 // "current-password"), real labels, and one error region that screen readers announce.
+// No client-side checks: every failure gets the server's one generic message, so nothing
+// here can hint at whether an account exists.
 export default function SignIn() {
   usePageTitle("Sign in");
   const queryClient = useQueryClient();
@@ -90,22 +93,18 @@ export default function SignIn() {
         aria-describedby={error ? errorId : undefined}
         noValidate
       >
-        <div className="field">
-          <label htmlFor="sign-in-email">Email</label>
-          <input
-            ref={emailRef}
-            id="sign-in-email"
-            name="email"
-            type="email"
-            autoComplete="username"
-            inputMode="email"
-            autoCapitalize="none"
-            spellCheck={false}
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </div>
+        <TextField
+          id="sign-in-email"
+          label="Email"
+          type="email"
+          name="email"
+          autoComplete="username"
+          inputMode="email"
+          required
+          inputRef={emailRef}
+          value={email}
+          onChange={setEmail}
+        />
 
         <PasswordField
           id="sign-in-password"

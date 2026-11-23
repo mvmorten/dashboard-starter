@@ -3,6 +3,7 @@
 
 import { ApiError, apiDelete, apiGet, apiPost, apiPut } from "../api";
 import type { ListSpec } from "../grid/listState";
+import { trimLikeServer } from "./rules";
 
 export type CustomerStatus = "Active" | "Inactive";
 
@@ -97,15 +98,15 @@ export function fieldsOf(customer: Customer): CustomerFields {
   };
 }
 
-// What the API would store: trimmed. Comparing trimmed values means a stray space isn't an
-// unsaved change, or a conflict.
+// What the API would store: trimmed, the way .NET trims (rules.ts). Comparing trimmed values
+// means a stray space isn't an unsaved change, or a conflict.
 export function trimFields(fields: CustomerFields): CustomerFields {
   return {
-    name: fields.name.trim(),
-    email: fields.email.trim(),
-    phone: fields.phone.trim(),
+    name: trimLikeServer(fields.name),
+    email: trimLikeServer(fields.email),
+    phone: trimLikeServer(fields.phone),
     status: fields.status,
-    notes: fields.notes.trim(),
+    notes: trimLikeServer(fields.notes),
   };
 }
 
