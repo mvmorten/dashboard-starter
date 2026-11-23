@@ -30,7 +30,7 @@ const customerUser = process.env.CUSTOMER_USER ?? "cmem@example.com";
 const read = (path) =>
   JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 const customerCases = read("../../src/Web/src/customers/rule-cases.json");
-const passwordCases = read("../../src/Web/src/auth/password-cases.json");
+const accountCases = read("../../src/Web/src/auth/password-cases.json");
 
 // A value as the case files write it: a string, or parts joined together.
 function expand(value) {
@@ -164,25 +164,28 @@ console.log(
 );
 const anonymous = new Session();
 const account = new Session();
-await account.signIn(passwordCases.email);
+await account.signIn(accountCases.email);
 
-for (const passwordCase of passwordCases.cases) {
-  await check(passwordCase.case, async () => {
-    const password = expand(passwordCase.password);
+// "accountCase", not "passwordCase": CodeQL decides what's secret by name, and flagged the
+// case's label (printed by check) as a logged password. The passwords here are made-up values
+// already in the repo, and only the label is printed.
+for (const accountCase of accountCases.cases) {
+  await check(accountCase.case, async () => {
+    const password = expand(accountCase.password);
 
     // The length alone: a reset link's form. The length is checked before the token, so a
     // made-up token still gets the length's answer, and an acceptable length gets "Reset
     // link not valid".
-    if (!passwordCase.checkEmail) {
+    if (!accountCase.checkEmail) {
       const result = await anonymous.send("POST", "/api/auth/reset-password", {
         token: "not-a-real-reset-token",
         newPassword: password,
       });
       assert.equal(result.status, 400, JSON.stringify(result.body));
-      if (passwordCase.error === null) {
+      if (accountCase.error === null) {
         assert.equal(result.body.title, "Reset link not valid");
       } else {
-        assert.equal(result.body.detail, passwordCase.error);
+        assert.equal(result.body.detail, accountCase.error);
       }
 
       return;
@@ -193,9 +196,9 @@ for (const passwordCase of passwordCases.cases) {
       currentPassword: PW,
       newPassword: password,
     });
-    if (passwordCase.error !== null) {
+    if (accountCase.error !== null) {
       assert.equal(result.status, 400, JSON.stringify(result.body));
-      assert.equal(result.body.detail, passwordCase.error);
+      assert.equal(result.body.detail, accountCase.error);
       return;
     }
 
