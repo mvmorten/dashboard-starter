@@ -1,14 +1,38 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError, refreshAntiforgeryToken } from "../api";
 import AuthCard from "../auth/AuthCard";
-import PasswordField from "../auth/PasswordField";
 import {
-  checkNewPassword,
   passwordHint,
+  passwordsDontMatch,
   resetPassword,
 } from "../auth/password";
+import { checkPasswordLength } from "../auth/passwordRules";
+import PasswordField from "../forms/PasswordField";
+import { useForm, type FormErrors } from "../forms/useForm";
 import { usePageTitle } from "../layout/usePageTitle";
+
+// A type, not an interface, so it fits useForm's Record<string, string>.
+type ResetFields = {
+  new: string;
+  confirm: string;
+};
+
+// What the form can check before sending: the length only. The account's email isn't known
+// until the server looks up the link's token, so "not your email" is checked there.
+function check(fields: ResetFields): FormErrors<ResetFields> {
+  const errors: FormErrors<ResetFields> = {};
+  const problem = checkPasswordLength(fields.new);
+  if (problem) {
+    errors.new = problem;
+  }
+
+  if (fields.confirm !== fields.new) {
+    errors.confirm = passwordsDontMatch;
+  }
+
+  return errors;
+}
 
 // Read once, when the page opens: the token arrives in the address's fragment
 // (/reset-password#token=...), which the browser never sends to any server.
@@ -22,13 +46,16 @@ export default function ResetPassword() {
   usePageTitle("Choose a new password");
   const navigate = useNavigate();
   const [token] = useState(readToken);
-  const [password, setPassword] = useState("");
-  const [confirmation, setConfirmation] = useState("");
+  const form = useForm({
+    initial: { new: "", confirm: "" },
+    idPrefix: "reset",
+    check,
+  });
+  // What the server said: an expired link, or a rule only it can check.
   const [error, setError] = useState<string | null>(null);
   const [linkFailed, setLinkFailed] = useState(false);
   const [pending, setPending] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
-  const errorId = useId();
 
   useEffect(() => {
     // Take the token out of the address bar (and so out of history, bookmarks, and
@@ -63,17 +90,15 @@ export default function ResetPassword() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const problem = checkNewPassword(password, confirmation);
-    if (problem) {
-      setError(problem);
+    setError(null);
+    setLinkFailed(false);
+    if (!form.validate()) {
       return;
     }
 
-    setError(null);
-    setLinkFailed(false);
     setPending(true);
     try {
-      await resetPassword(token!, password);
+      await resetPassword(token!, form.values.new);
       navigate("/sign-in", {
         replace: true,
         state: { notice: "Password changed. Sign in with your new password." },
@@ -93,27 +118,23 @@ export default function ResetPassword() {
       <form
         method="post"
         onSubmit={submit}
-        aria-describedby={error ? errorId : undefined}
+        aria-describedby={error ? "reset-error" : undefined}
         noValidate
       >
         <PasswordField
-          id="reset-new-password"
           label="New password"
           autoComplete="new-password"
           hint={passwordHint}
-          value={password}
-          onChange={setPassword}
           inputRef={passwordRef}
+          {...form.field("new")}
         />
         <PasswordField
-          id="reset-confirm-password"
           label="New password again"
           autoComplete="new-password"
-          value={confirmation}
-          onChange={setConfirmation}
+          {...form.field("confirm")}
         />
 
-        <div id={errorId} role="alert" className="form-error">
+        <div id="reset-error" role="alert" className="form-error">
           {error}
           {linkFailed && (
             <>

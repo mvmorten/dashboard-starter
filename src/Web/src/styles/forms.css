@@ -1,0 +1,84 @@
+/*
+  Form fields (src/Web/src/forms/): the label, the hint, the input, the error and the
+  character count, stacked. The same on a phone and a wide screen; a form sets its own width
+  (.narrow-form, .customer-form).
+*/
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+
+.field label {
+  font-weight: 600;
+}
+
+/* "(optional)" after a label. */
+.optional {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.field input,
+.field select,
+.field textarea {
+  /* 16 px or more, or iOS zooms in when the field gets focus. */
+  font: inherit;
+  font-size: max(1rem, 16px);
+  min-height: var(--target);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  color: var(--text);
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+/* Said before the input, so it's read before you start typing (and linked with aria-describedby). */
+.field-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* Under the input. The red border says it too, but never alone: the words are always there. */
+.field-error {
+  margin: 0;
+  color: var(--failed);
+}
+
+.field [aria-invalid="true"] {
+  border-color: var(--failed);
+}
+
+/* "214 characters left", once the text gets near its limit; "12 characters too many" past it. */
+.field-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.field-count-over {
+  color: var(--failed);
+}
+
+/* A password input with its Show/Hide button. The input takes the room; the button keeps its size. */
+.password-input {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.password-input input {
+  flex: 1;
+  min-width: 0;
+}
+
+.password-input button {
+  min-width: var(--target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+}
