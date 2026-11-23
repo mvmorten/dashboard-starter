@@ -13,8 +13,13 @@ namespace DashboardStarter.Api.Customers;
 /// </para>
 /// <para>
 /// Errors are keyed by the JSON field name ("name", "email"), so the form can show each one
-/// next to its field. The forms step brings shared rules for the front end; until then the
-/// server is the only check.
+/// next to its field.
+/// </para>
+/// <para>
+/// The form has a copy of these rules, with the same messages, in
+/// src/Web/src/customers/rules.ts, so people find out sooner; this class still has the final
+/// word. Change a rule here, change it there, and add a case to
+/// src/Web/src/customers/rule-cases.json: CI runs every case against both.
 /// </para>
 /// </remarks>
 public static class CustomerValidation

@@ -148,7 +148,7 @@ A public demo needs a way in without an account. Step 7 used one shared account 
 
 ## The CRUD example: Customers
 
-Customers is the sample module: the pattern to copy for your own tenant-owned records, from the table to the screen. Each layer is one place: the table in `sql/migrations/0013_customers.sql`, the SQL in `src/Api/Customers/CustomerStore.cs`, the endpoints in `CustomersController.cs`, the field rules in `CustomerValidation.cs`, the calls in `src/Web/src/customers/customers.ts`, and the pages in `src/Web/src/pages/Customers.tsx` (the list) and `Customer.tsx` (the form).
+Customers is the sample module: the pattern to copy for your own tenant-owned records, from the table to the screen. Each layer is one place: the table in `sql/migrations/0013_customers.sql`, the SQL in `src/Api/Customers/CustomerStore.cs`, the endpoints in `CustomersController.cs`, the field rules in `CustomerValidation.cs`, the form's copy of those rules in `src/Web/src/customers/rules.ts`, the calls in `customers.ts`, and the pages in `src/Web/src/pages/Customers.tsx` (the list) and `Customer.tsx` (the form, with its parts in `pages/customer/`).
 
 | Endpoint | Needs | |
 | --- | --- | --- |
@@ -158,11 +158,11 @@ Customers is the sample module: the pattern to copy for your own tenant-owned re
 | `PUT /api/customers/{id}` | `customers.edit` | The fields and the `rowVersion` you loaded. `200`, `404`, or `409` with the current record. |
 | `DELETE /api/customers/{id}` | `customers.edit` | Soft delete; the `rowVersion` goes in the body. `204`, `404`, or `409`. |
 
-- **Validation is on the server**: `400` with ProblemDetails `errors` keyed by field (`name`, `email`, ...). Text is trimmed, an empty optional field is stored as `NULL`, and the lengths are the column lengths. Shared rules for the front end come with the forms step.
+- **Validation is on the server**: `400` with ProblemDetails `errors` keyed by field (`name`, `email`, ...). Text is trimmed, an empty optional field is stored as `NULL`, and the lengths are the column lengths. The form checks the same rules first, so mistakes show without a round trip (see "Forms" below), but the server has the final word.
 - **Email isn't unique.** Two customers can share an address (a family, a shared inbox). User accounts are different: `Users.Email` is unique, because it's how you sign in.
 - **The list** (`/customers`) is the data grid (below): a table on a wide screen and cards on a phone, with a search box, a status filter, sorting, and 25 a page. All of it is in the URL, so Back, a reload and a shared link show the same page.
-- **The form** (`/customers/new`, `/customers/{id}`) shows the server's field errors under each field; there are no client-side rules yet. Without `customers.edit` the same page shows the fields to read, and there's no "New customer" button. Delete asks once, on the page. Leaving with unsaved changes asks first: closing the tab, or following a link. React Router's `useBlocker` only works in its data mode, so `useUnsavedChangesWarning` listens for link clicks itself. It doesn't catch the browser's Back button.
-- **Not yet:** shared validation rules (the forms step), restoring deleted customers and history (the audit log step).
+- **The form** (`/customers/new`, `/customers/{id}`) is built from the shared field components (see "Forms" below) and checks the rules before it saves. Without `customers.edit` the same page shows the fields to read, and there's no "New customer" button. Delete asks once, on the page. Leaving with unsaved changes asks first: closing the tab, or following a link. React Router's `useBlocker` only works in its data mode, so `useUnsavedChangesWarning` listens for link clicks itself. It doesn't catch the browser's Back button.
+- **Not yet:** restoring deleted customers and history (the audit log step).
 
 ### The data grid
 
@@ -190,6 +190,19 @@ Two people open the same customer. One saves. When the other saves, the API answ
 Then you save again. That save sends their `rowVersion`, so if a third person saved in between, it's another 409 and another merge, starting from their version. If the other person deleted the customer, the form says so and offers to save your version as a new customer.
 
 The merge is a pure function with no imports, `src/Web/src/customers/merge.ts`, tested with Node's own test runner (`npm test`, which runs `merge.test.ts`): no test library, and no browser.
+
+### Forms
+
+Every form is built from a few field components in `src/Web/src/forms/`: `TextField` (text, email, phone), `SelectField`, `TextAreaField` and `PasswordField`. Each is a `Field` with its own input inside, and `Field` owns the label, the "(optional)" marker, the hint, the error, and the ids and `aria-describedby` that tie them together. They're built by hand, without a form library. These forms have five fields at most, none of them repeat or depend on each other, and the merge screen fills in values from outside the form. React Hook Form would earn its place with repeating groups (order lines, contacts), a long form whose fields depend on each other, or a multi-step wizard. A schema library like Zod would earn its place with a Node back end that could share the schema.
+
+- **The rules are plain code, written twice.** The server's rules are in `CustomerValidation.cs` and `PasswordRules.cs`. The form has a copy of each, with the same messages word for word: `customers/rules.ts` and `auth/passwordRules.ts`, pure modules with no imports. The client copy is there so people find out sooner. It's never a security boundary: the server checks everything again.
+- **CI proves the two copies agree.** The test cases are shared JSON files, `customers/rule-cases.json` and `auth/password-cases.json` (input, then the exact errors or what gets stored). `npm test` runs them against the TypeScript copy, and [`.github/scripts/rule-cases.mjs`](.github/scripts/rule-cases.mjs) runs the same cases against the API. If a rule or a message changes on one side only, one of the two fails. To change a rule, change both copies and add a case.
+- **Trimming like .NET.** .NET's `Trim()` and JavaScript's `trim()` don't remove the same characters (U+0085 and U+FEFF differ), so the rules modules trim exactly what .NET does.
+- **Follow one field from the screen to the server:** the Notes field is a `TextAreaField` in `pages/customer/CustomerEditor.tsx`. On submit, `useForm` runs `validateCustomer` (`customers/rules.ts`), whose notes check is the same `if` as the one in `CustomerValidation.Validate`, with the same 2000 limit (the column length in `0013_customers.sql`) and the same message. The case "notes one over the limit" in `rule-cases.json` proves both say it.
+- **When errors show:** nothing while you type the first time. On submit, every problem at once, with focus on the first field that has one. After that, a field showing an error is checked again on every change, so the error goes as soon as it's fixed. Errors are linked to their fields with `aria-describedby` and read when the field gets focus, never on every key. No error summary at the top: with five fields, focus on the first problem is enough.
+- **Character count** on a field with a long limit (Notes, 2000): it appears at 80% of the limit ("400 characters left") and turns red past it. It counts the trimmed length, as the rule does. A screen reader hears it once typing pauses for a second, not on every key.
+- **Sign-in has no client checks,** so nothing there can hint at whether an account exists. The new-password forms check the length (and, when changing your password, that it isn't your email), and that the two copies match. That last one is a form check, not a password rule: the server never sees the second copy.
+- **No `maxLength` on inputs:** it would cut pasted text short without a word. The rules say how long is too long instead.
 
 ## Code conventions
 
@@ -293,7 +306,8 @@ Each milestone above gets its own post covering what was built, the tradeoffs, a
 | 7 | [Roles and Permissions: Check What, Not Who](https://mvmorten.com/projects/dashboard-starter/roles-and-permissions) | [v0.7](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.7) | Published |
 | 8 | [Demo Sandboxes: A Private Copy for Every Visitor](https://mvmorten.com/projects/dashboard-starter/demo-sandboxes) | [v0.8](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.8) | Published |
 | 9 | [The CRUD Module: Customers, Row-Level Security, and a Three-Way Merge](https://mvmorten.com/projects/dashboard-starter/the-crud-module) | [v0.9](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.9) | Published |
-| 10 | The data grid | v0.10 | Planned |
+| 10 | [The Data Grid: Sorting, Filters, and Columns, Built by Hand](https://mvmorten.com/projects/dashboard-starter/the-data-grid) | [v0.10](https://github.com/mvmorten/dashboard-starter/releases/tag/v0.10) | Published |
+| 11 | Forms | v0.11 | Planned |
 | ... | More to come | | |
 
 ## Getting started
@@ -404,7 +418,7 @@ npm test                     # unit tests, with Node's test runner
 npm run build                # type-check and build
 ```
 
-CI also runs the API against a real SQL Server and checks sign-in end to end with curl: wrong passwords, lockout, antiforgery, switching tenants, and sessions ending after a password change. The script is [`.github/scripts/auth-checks.sh`](.github/scripts/auth-checks.sh). A second script, [`.github/scripts/password-checks.sh`](.github/scripts/password-checks.sh), does the same for password reset and change password: one answer for every address, emails only to real accounts (read from `.dev-mail/`), links that work once and expire, sessions that end, the hourly email cap, and the password rules. A third, [`.github/scripts/sandbox-checks.sh`](.github/scripts/sandbox-checks.sh), covers demo sandboxes: what one contains, that two can't see each other, expiry, cleanup removing exactly a sandbox's rows, and the cleanup lock. [`.github/scripts/customer-checks.sh`](.github/scripts/customer-checks.sh) covers the Customers API: each role's permissions, validation, paging and search escaping, 409 with the current record, soft delete on every endpoint, tenant isolation, and the demo row cap. [`.github/scripts/rls-checks.sh`](.github/scripts/rls-checks.sh) checks Row-Level Security straight in SQL Server: the policy covers every table with a `TenantId`, no tenant means no rows, and one tenant can't read or write another's, as the API's login and as the admin. CI also checks the sandbox limits, that cleanup knows every table, the upgrade from step 7's shared demo account and from step 8, and that `-- for-each-tenant` data migrations reach every tenant. They all run locally too (see the comments at their tops).
+CI also runs the API against a real SQL Server and checks sign-in end to end with curl: wrong passwords, lockout, antiforgery, switching tenants, and sessions ending after a password change. The script is [`.github/scripts/auth-checks.sh`](.github/scripts/auth-checks.sh). A second script, [`.github/scripts/password-checks.sh`](.github/scripts/password-checks.sh), does the same for password reset and change password: one answer for every address, emails only to real accounts (read from `.dev-mail/`), links that work once and expire, sessions that end, the hourly email cap, and the password rules. A third, [`.github/scripts/sandbox-checks.sh`](.github/scripts/sandbox-checks.sh), covers demo sandboxes: what one contains, that two can't see each other, expiry, cleanup removing exactly a sandbox's rows, and the cleanup lock. [`.github/scripts/customer-checks.sh`](.github/scripts/customer-checks.sh) covers the Customers API: each role's permissions, validation, paging and search escaping, 409 with the current record, soft delete on every endpoint, tenant isolation, and the demo row cap. [`.github/scripts/rule-cases.mjs`](.github/scripts/rule-cases.mjs) runs the forms' shared rule cases against the API (see "Forms"). [`.github/scripts/rls-checks.sh`](.github/scripts/rls-checks.sh) checks Row-Level Security straight in SQL Server: the policy covers every table with a `TenantId`, no tenant means no rows, and one tenant can't read or write another's, as the API's login and as the admin. CI also checks the sandbox limits, that cleanup knows every table, the upgrade from step 7's shared demo account and from step 8, and that `-- for-each-tenant` data migrations reach every tenant. They all run locally too (see the comments at their tops).
 
 ### Security checks
 

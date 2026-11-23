@@ -427,6 +427,30 @@ jobs:
           mkdir -p src/Api/wwwroot
           cp -r src/Web/dist/. src/Api/wwwroot/
 
+      # The form's copy of the field rules (src/Web/src/customers/rules.ts, auth/passwordRules.ts)
+      # and the server's (CustomerValidation.cs, PasswordRules.cs) must agree. npm test runs the
+      # shared cases against the front end's copy; this runs the same cases against the API.
+      # The password cases make about 13 requests, more than the password endpoints allow a
+      # minute (5), so this API instance gets a higher limit.
+      - name: Rule cases (the form's rules agree with the API's)
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          PasswordReset__PermitLimit: "100"
+          BASE: http://localhost:5089
+        run: |
+          db="dotnet run --no-build --configuration Release --project src/Db --"
+          echo 'a-long-enough-password' | $db create-user --email rules@example.com --name "Rules Example" --tenant "Acme Corporation" --password-stdin
+          dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5089 > api-rules.log 2>&1 &
+          pid=$!
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:5089/api/health -o /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          node .github/scripts/rule-cases.mjs || { cat api-rules.log; exit 1; }
+          kill $pid
+
       # Also the production cookie and HTTPS settings. ASPNETCORE_FORWARDEDHEADERS_ENABLED is
       # what the deploy sets on App Service, so a request with X-Forwarded-Proto: https counts
       # as HTTPS here, the way one that came through Azure's front end does.

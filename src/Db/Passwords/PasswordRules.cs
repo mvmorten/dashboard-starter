@@ -8,6 +8,11 @@ namespace DashboardStarter.Db.Passwords;
 /// "Password1!". One place for the API (reset and change password) and the Db runner
 /// (create-user, set-password), so the rules can't drift apart.
 /// </summary>
+/// <remarks>
+/// The new-password forms have a copy, with the same messages, in
+/// src/Web/src/auth/passwordRules.ts. Change a rule here, change it there, and add a case to
+/// src/Web/src/auth/password-cases.json: CI runs every case against both.
+/// </remarks>
 public static class PasswordRules
 {
   public const int MinimumLength = 12;

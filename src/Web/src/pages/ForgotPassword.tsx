@@ -1,9 +1,11 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { ApiError, refreshAntiforgeryToken } from "../api";
 import AuthCard from "../auth/AuthCard";
 import { forgotPassword } from "../auth/password";
 import { useSignInInfo } from "../auth/useSignInInfo";
+import TextField from "../forms/TextField";
+import { useForm } from "../forms/useForm";
 import { usePageTitle } from "../layout/usePageTitle";
 
 // Ask for a reset link. The answer is the same whatever happens (account or not), so the
@@ -11,12 +13,21 @@ import { usePageTitle } from "../layout/usePageTitle";
 export default function ForgotPassword() {
   usePageTitle("Forgot password");
   const { data: info } = useSignInInfo();
-  const [email, setEmail] = useState("");
+  // The only check is "is anything there?". The form never says anything about whether an
+  // address has an account, or even looks like one.
+  const form = useForm({
+    initial: { email: "" },
+    idPrefix: "forgot",
+    check: (fields) =>
+      fields.email.trim()
+        ? {}
+        : { email: "Enter the email address you sign in with." },
+  });
+  const email = form.values.email;
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
-  const errorId = useId();
 
   useEffect(() => {
     emailRef.current?.focus();
@@ -25,12 +36,11 @@ export default function ForgotPassword() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!email.trim()) {
-      setError("Enter the email address you sign in with.");
+    setError(null);
+    if (!form.validate()) {
       return;
     }
 
-    setError(null);
     setPending(true);
     try {
       await forgotPassword(email.trim());
@@ -89,27 +99,21 @@ export default function ForgotPassword() {
       <form
         method="post"
         onSubmit={submit}
-        aria-describedby={error ? errorId : undefined}
+        aria-describedby={error ? "forgot-error" : undefined}
         noValidate
       >
-        <div className="field">
-          <label htmlFor="forgot-email">Email</label>
-          <input
-            ref={emailRef}
-            id="forgot-email"
-            name="email"
-            type="email"
-            autoComplete="username"
-            inputMode="email"
-            autoCapitalize="none"
-            spellCheck={false}
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </div>
+        <TextField
+          label="Email"
+          type="email"
+          name="email"
+          autoComplete="username"
+          inputMode="email"
+          required
+          inputRef={emailRef}
+          {...form.field("email")}
+        />
 
-        <div id={errorId} role="alert" className="form-error">
+        <div id="forgot-error" role="alert" className="form-error">
           {error}
         </div>
 
