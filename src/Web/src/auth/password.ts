@@ -1,11 +1,9 @@
-// Forgot, reset, and change password. The rules for a new password live in the API
-// (PasswordRules in src/Db); the length is repeated here only so the form can say it up front
-// and catch a short password before a round trip. The API has the final word.
+// Forgot, reset, and change password: the calls, and the hint a new password field shows. The
+// rules for a new password are in passwordRules.ts, a copy of PasswordRules in src/Db.
 
 import { apiPost, refreshAntiforgeryToken } from "../api";
+import { passwordMaxLength, passwordMinLength } from "./passwordRules";
 
-export const passwordMinLength = 12;
-export const passwordMaxLength = 128;
 export const passwordHint = `${passwordMinLength} to ${passwordMaxLength} characters. A few unrelated words make a good one.`;
 
 // Always answers the same, whether or not the address has an account.
@@ -33,22 +31,6 @@ export async function changePassword(
   await refreshAntiforgeryToken();
 }
 
-// The checks the form can make on its own. Returns what's wrong, or null.
-export function checkNewPassword(
-  password: string,
-  confirmation: string,
-): string | null {
-  if (password.length < passwordMinLength) {
-    return `The new password must be at least ${passwordMinLength} characters.`;
-  }
-
-  if (password.length > passwordMaxLength) {
-    return `The new password can be at most ${passwordMaxLength} characters.`;
-  }
-
-  if (password !== confirmation) {
-    return "The two new passwords don't match.";
-  }
-
-  return null;
-}
+// Not a password rule (the server never sees the second copy): a form check that the two new
+// passwords are the same, so a typo doesn't lock anyone out.
+export const passwordsDontMatch = "The two new passwords don't match.";

@@ -22,6 +22,16 @@ import {
   type CustomerFields,
 } from "../../customers/customers";
 import { mergeThreeWay } from "../../customers/merge";
+import {
+  customerStatuses,
+  notesMaxLength,
+  trimLikeServer,
+  validateCustomer,
+} from "../../customers/rules";
+import SelectField from "../../forms/SelectField";
+import TextAreaField from "../../forms/TextAreaField";
+import TextField from "../../forms/TextField";
+import { useForm } from "../../forms/useForm";
 import { usePageTitle } from "../../layout/usePageTitle";
 import { useUnsavedChangesWarning } from "../../layout/useUnsavedChangesWarning";
 import type { CustomersNotice } from "../Customers";
@@ -47,12 +57,14 @@ export default function CustomerEditor({
   // The version these edits build on: what the form loaded, then whatever the last save (or
   // the last 409) returned. Null for a new customer.
   const [base, setBase] = useState<Customer | null>(initial);
-  const [values, setValues] = useState<CustomerFields>(
-    initial ? fieldsOf(initial) : emptyCustomerFields,
-  );
-  const [errors, setErrors] = useState<Partial<Record<CustomerField, string>>>(
-    {},
-  );
+  // The fields, their errors, and when errors show (forms/useForm.ts). The client rules are
+  // customers/rules.ts, a copy of the server's CustomerValidation.cs.
+  const form = useForm<CustomerFields>({
+    initial: initial ? fieldsOf(initial) : emptyCustomerFields,
+    idPrefix: "customer",
+    check: (fields) => validateCustomer(fields).errors,
+  });
+  const values = form.values;
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(arrivedWith ?? null);
   const [merge, setMerge] = useState<MergeState | null>(null);
@@ -80,14 +92,6 @@ export default function CustomerEditor({
     }
   }, [confirmingDelete]);
 
-  function setField(field: CustomerField, value: string) {
-    setValues((current) => ({ ...current, [field]: value }));
-  }
-
-  function focusField(field: CustomerField) {
-    document.getElementById(`customer-${field}`)?.focus();
-  }
-
   // The list and this customer's cached copy are out of date after any change.
   function refreshCached(saved: Customer | null) {
     if (saved) {
@@ -104,8 +108,8 @@ export default function CustomerEditor({
     const result = mergeThreeWay(original, mine, fieldsOf(theirs));
 
     setBase(theirs);
-    setValues(result.merged);
-    setErrors({});
+    form.setValues(result.merged);
+    form.clearErrors();
     setConfirmingDelete(false);
     setMerge({
       theirs,
@@ -125,7 +129,7 @@ export default function CustomerEditor({
     }
 
     setMerge({ ...merge, choices: { ...merge.choices, [field]: choice } });
-    setField(
+    form.setField(
       field,
       choice === "mine" ? merge.mine[field] : fieldsOf(merge.theirs)[field],
     );
@@ -134,7 +138,7 @@ export default function CustomerEditor({
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // Errors from the last try don't apply any more; this save brings its own, if any.
-    setErrors({});
+    form.clearErrors();
     setFormError(null);
     setNotice(null);
 
@@ -150,6 +154,12 @@ export default function CustomerEditor({
     if (base && !unsaved) {
       setMerge(null);
       setNotice("Nothing to save: no changes.");
+      return;
+    }
+
+    // The client rules first, so a mistake shows without a round trip. The server checks every
+    // rule again either way.
+    if (!form.validate()) {
       return;
     }
 
@@ -171,8 +181,8 @@ export default function CustomerEditor({
 
       const saved = await updateCustomer(base.id, fields, base.rowVersion);
       setBase(saved);
-      setValues(fieldsOf(saved));
-      setErrors({});
+      form.setValues(fieldsOf(saved));
+      form.clearErrors();
       setMerge(null);
       setNotice("Saved.");
       refreshCached(saved);
@@ -184,16 +194,11 @@ export default function CustomerEditor({
   }
 
   function handleSaveFailure(caught: unknown) {
+    // The server's own field errors, next to their fields, as if the client rules had found
+    // them. With the two sets of rules in step, this only happens if they drift apart.
     const fieldErrors = fieldErrorsOf(caught);
     if (fieldErrors) {
-      setErrors(fieldErrors);
-      const first = (Object.keys(customerFieldLabels) as CustomerField[]).find(
-        (field) => fieldErrors[field],
-      );
-      if (first) {
-        focusField(first);
-      }
-
+      form.showErrors(fieldErrors);
       return;
     }
 
@@ -214,8 +219,13 @@ export default function CustomerEditor({
 
   // Deleted by someone else: this person's version only exists in the form now.
   async function saveAsNew() {
-    setErrors({});
+    form.clearErrors();
     setFormError(null);
+    if (!form.validate()) {
+      setFormError("Some fields need another look.");
+      return;
+    }
+
     setPending("save");
     try {
       const created = await createCustomer(trimFields(values));
@@ -230,7 +240,7 @@ export default function CustomerEditor({
     } catch (caught) {
       const fieldErrors = fieldErrorsOf(caught);
       if (fieldErrors) {
-        setErrors(fieldErrors);
+        form.showErrors(fieldErrors);
       }
 
       setFormError(
@@ -282,21 +292,6 @@ export default function CustomerEditor({
   }
 
   const tenant = me ? currentTenant(me) : null;
-  const errorText = (field: CustomerField) =>
-    errors[field] ? (
-      <p id={`customer-${field}-error`} className="field-error">
-        {errors[field]}
-      </p>
-    ) : null;
-  // The bits every input shares: its id, its value, and its error, if any.
-  const inputProps = (field: CustomerField) => ({
-    id: `customer-${field}`,
-    name: field,
-    value: values[field],
-    "aria-invalid": errors[field] ? true : undefined,
-    "aria-describedby": errors[field] ? `customer-${field}-error` : undefined,
-  });
-
   return (
     <>
       <BackLink />
@@ -332,68 +327,45 @@ export default function CustomerEditor({
       )}
 
       <form method="post" className="customer-form" onSubmit={save} noValidate>
-        <div className="field">
-          <label htmlFor="customer-name">Name</label>
-          <input
-            {...inputProps("name")}
-            type="text"
-            autoComplete="off"
-            onChange={(event) => setField("name", event.target.value)}
-          />
-          {errorText("name")}
-        </div>
-
-        <div className="field">
-          <label htmlFor="customer-email">
-            Email <span className="optional">(optional)</span>
-          </label>
-          <input
-            {...inputProps("email")}
-            type="email"
-            autoComplete="off"
-            autoCapitalize="none"
-            spellCheck={false}
-            onChange={(event) => setField("email", event.target.value)}
-          />
-          {errorText("email")}
-        </div>
-
-        <div className="field">
-          <label htmlFor="customer-phone">
-            Phone <span className="optional">(optional)</span>
-          </label>
-          <input
-            {...inputProps("phone")}
-            type="tel"
-            autoComplete="off"
-            onChange={(event) => setField("phone", event.target.value)}
-          />
-          {errorText("phone")}
-        </div>
-
-        <div className="field">
-          <label htmlFor="customer-status">Status</label>
-          <select
-            {...inputProps("status")}
-            onChange={(event) => setField("status", event.target.value)}
-          >
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-          {errorText("status")}
-        </div>
-
-        <div className="field">
-          <label htmlFor="customer-notes">
-            Notes <span className="optional">(optional)</span>
-          </label>
-          <textarea
-            {...inputProps("notes")}
-            rows={4}
-            onChange={(event) => setField("notes", event.target.value)}
-          />
-          {errorText("notes")}
-        </div>
+        <TextField
+          label={customerFieldLabels.name}
+          name="name"
+          autoComplete="off"
+          {...form.field("name")}
+        />
+        <TextField
+          label={customerFieldLabels.email}
+          type="email"
+          optional
+          name="email"
+          autoComplete="off"
+          {...form.field("email")}
+        />
+        <TextField
+          label={customerFieldLabels.phone}
+          type="tel"
+          optional
+          name="phone"
+          autoComplete="off"
+          {...form.field("phone")}
+        />
+        <SelectField
+          label={customerFieldLabels.status}
+          options={customerStatuses}
+          name="status"
+          {...form.field("status")}
+        />
+        {/* The count uses the trimmed length, because that's what the rule checks. */}
+        <TextAreaField
+          label={customerFieldLabels.notes}
+          optional
+          name="notes"
+          count={{
+            length: trimLikeServer(values.notes).length,
+            max: notesMaxLength,
+          }}
+          {...form.field("notes")}
+        />
 
         <div role="alert" className="form-error">
           {formError}

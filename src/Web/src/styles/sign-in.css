@@ -1,7 +1,8 @@
 /*
-  The pages before sign-in (sign in, forgot and reset password) and the form fields they
-  share with the change password page. Phone first: the card fills the width with a little
-  padding. From 30rem up it becomes a centered card with a border.
+  The pages before sign-in (sign in, forgot and reset password), and the form-level pieces
+  they share with the change password page. Phone first: the card fills the width with a
+  little padding. From 30rem up it becomes a centered card with a border. The fields
+  themselves are in forms.css.
 */
 
 .sign-in {
@@ -34,58 +35,6 @@
 
 .sign-in h1 {
   margin-bottom: var(--space-6);
-}
-
-.field {
-  display: grid;
-  gap: var(--space-1);
-  margin-bottom: var(--space-4);
-}
-
-.field label {
-  font-weight: 600;
-}
-
-.field input,
-.field select,
-.field textarea {
-  /* 16 px or more, or iOS zooms in when the field gets focus. */
-  font: inherit;
-  font-size: max(1rem, 16px);
-  min-height: var(--target);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--background);
-  color: var(--text);
-}
-
-/* Said before the input, so it's read before you start typing (and linked with aria-describedby). */
-.field textarea {
-  resize: vertical;
-}
-
-.field-hint {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.875rem;
-}
-
-/* A password input with its Show/Hide button. The input takes the room; the button keeps its size. */
-.password-input {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.password-input input {
-  flex: 1;
-  min-width: 0;
-}
-
-.password-input button {
-  min-width: var(--target);
-  padding: 0 var(--space-3);
-  border-radius: var(--radius-sm);
 }
 
 /* A text link with a full-size tap target, like "Forgot password?" or "Back to sign in". */

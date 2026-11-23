@@ -1,0 +1,200 @@
+{
+  "about": [
+    "Test cases for the customer field rules, run against both copies of them: rules.test.ts runs them against customers/rules.ts, and .github/scripts/rule-cases.mjs posts them to POST /api/customers (CustomerValidation.cs). If the two copies disagree on any case, one of them fails.",
+    "Each case is the defaults with its input on top. A case has either errors (every field with a problem, to its exact message) or stored (what the API saves and sends back: trimmed, an empty optional field as null). Fields a case's stored leaves out are expected as the defaults store them.",
+    "A value is a string, or a list of parts joined together, where a part can be {\"repeat\": text, \"count\": n} for long values."
+  ],
+  "defaults": {
+    "name": "Rule case",
+    "email": "",
+    "phone": "",
+    "status": "Active",
+    "notes": ""
+  },
+  "cases": [
+    {
+      "case": "an empty name",
+      "input": { "name": "" },
+      "errors": { "name": "Enter a name." }
+    },
+    {
+      "case": "a name of only spaces",
+      "input": { "name": "   " },
+      "errors": { "name": "Enter a name." }
+    },
+    {
+      "case": "a name of only tabs and line breaks",
+      "input": { "name": "\t\r\n " },
+      "errors": { "name": "Enter a name." }
+    },
+    {
+      "case": "a name of only U+0085, which .NET trims and JavaScript's trim() doesn't",
+      "input": { "name": "\u0085" },
+      "errors": { "name": "Enter a name." }
+    },
+    {
+      "case": "a name of only U+FEFF, which JavaScript's trim() removes and .NET keeps",
+      "input": { "name": "\ufeff" },
+      "stored": { "name": "\ufeff" }
+    },
+    {
+      "case": "U+0085 and no-break spaces around a name are trimmed",
+      "input": { "name": "\u0085\u00a0Ada Okafor\u00a0\u0085" },
+      "stored": { "name": "Ada Okafor" }
+    },
+    {
+      "case": "a name exactly at the limit",
+      "input": { "name": [{ "repeat": "n", "count": 200 }] },
+      "stored": { "name": [{ "repeat": "n", "count": 200 }] }
+    },
+    {
+      "case": "a name one over the limit",
+      "input": { "name": [{ "repeat": "n", "count": 201 }] },
+      "errors": { "name": "Use 200 characters or fewer." }
+    },
+    {
+      "case": "spaces around a name at the limit don't count",
+      "input": { "name": ["  ", { "repeat": "n", "count": 200 }, "  "] },
+      "stored": { "name": [{ "repeat": "n", "count": 200 }] }
+    },
+    {
+      "case": "an email of only spaces is no email",
+      "input": { "email": "   " },
+      "stored": { "email": null }
+    },
+    {
+      "case": "spaces around an email are trimmed",
+      "input": { "email": "  ada@example.com  " },
+      "stored": { "email": "ada@example.com" }
+    },
+    {
+      "case": "an email with two @",
+      "input": { "email": "ada@home@example.com" },
+      "errors": {
+        "email": "Enter an email address like name@example.com, or leave it empty."
+      }
+    },
+    {
+      "case": "an email with a space in it",
+      "input": { "email": "ada okafor@example.com" },
+      "errors": {
+        "email": "Enter an email address like name@example.com, or leave it empty."
+      }
+    },
+    {
+      "case": "an email with no @",
+      "input": { "email": "ada.example.com" },
+      "errors": {
+        "email": "Enter an email address like name@example.com, or leave it empty."
+      }
+    },
+    {
+      "case": "an email with nothing before the @",
+      "input": { "email": "@example.com" },
+      "errors": {
+        "email": "Enter an email address like name@example.com, or leave it empty."
+      }
+    },
+    {
+      "case": "an email with nothing after the @",
+      "input": { "email": "ada@" },
+      "errors": {
+        "email": "Enter an email address like name@example.com, or leave it empty."
+      }
+    },
+    {
+      "case": "a tab inside an email passes: the check is loose on purpose, and only refuses a space",
+      "input": { "email": "ada\t@example.com" },
+      "stored": { "email": "ada\t@example.com" }
+    },
+    {
+      "case": "an email exactly at the limit",
+      "input": { "email": [{ "repeat": "e", "count": 308 }, "@example.com"] },
+      "stored": { "email": [{ "repeat": "e", "count": 308 }, "@example.com"] }
+    },
+    {
+      "case": "an email one over the limit says so, not that it looks wrong",
+      "input": { "email": [{ "repeat": "e", "count": 309 }, "@example.com"] },
+      "errors": { "email": "Use 320 characters or fewer." }
+    },
+    {
+      "case": "a phone exactly at the limit",
+      "input": { "phone": [{ "repeat": "5", "count": 50 }] },
+      "stored": { "phone": [{ "repeat": "5", "count": 50 }] }
+    },
+    {
+      "case": "a phone one over the limit",
+      "input": { "phone": [{ "repeat": "5", "count": 51 }] },
+      "errors": { "phone": "Use 50 characters or fewer." }
+    },
+    {
+      "case": "notes exactly at the limit, with line breaks around them",
+      "input": { "notes": ["\n", { "repeat": "x", "count": 2000 }, "\n  "] },
+      "stored": { "notes": [{ "repeat": "x", "count": 2000 }] }
+    },
+    {
+      "case": "notes one over the limit",
+      "input": { "notes": [{ "repeat": "x", "count": 2001 }] },
+      "errors": { "notes": "Use 2000 characters or fewer." }
+    },
+    {
+      "case": "line breaks inside notes are kept",
+      "input": { "notes": "First line\nSecond line" },
+      "stored": { "notes": "First line\nSecond line" }
+    },
+    {
+      "case": "an unknown status",
+      "input": { "status": "Maybe" },
+      "errors": { "status": "Choose Active or Inactive." }
+    },
+    {
+      "case": "an empty status",
+      "input": { "status": "" },
+      "errors": { "status": "Choose Active or Inactive." }
+    },
+    {
+      "case": "the status is matched exactly, case and all",
+      "input": { "status": "active" },
+      "errors": { "status": "Choose Active or Inactive." }
+    },
+    {
+      "case": "spaces around a status are trimmed",
+      "input": { "status": " Inactive " },
+      "stored": { "status": "Inactive" }
+    },
+    {
+      "case": "every field wrong at once gets one message each",
+      "input": {
+        "name": " ",
+        "email": "not-an-email",
+        "phone": [{ "repeat": "5", "count": 51 }],
+        "status": "Maybe",
+        "notes": [{ "repeat": "x", "count": 2001 }]
+      },
+      "errors": {
+        "name": "Enter a name.",
+        "email": "Enter an email address like name@example.com, or leave it empty.",
+        "phone": "Use 50 characters or fewer.",
+        "status": "Choose Active or Inactive.",
+        "notes": "Use 2000 characters or fewer."
+      }
+    },
+    {
+      "case": "every field filled in and fine",
+      "input": {
+        "name": "Ada Okafor",
+        "email": "ada@example.com",
+        "phone": "+1 555 0100",
+        "status": "Inactive",
+        "notes": "Prefers email."
+      },
+      "stored": {
+        "name": "Ada Okafor",
+        "email": "ada@example.com",
+        "phone": "+1 555 0100",
+        "status": "Inactive",
+        "notes": "Prefers email."
+      }
+    }
+  ]
+}
