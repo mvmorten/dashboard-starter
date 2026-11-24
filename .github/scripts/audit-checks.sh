@@ -55,11 +55,12 @@ list() {
 # entries <entity type> <entity id> -> how many audit entries it has.
 entries() { in_tenant "$acme" "SELECT COUNT(*) FROM dbo.AuditLog WHERE EntityType = '$1' AND EntityId = $2;"; }
 # newest <entity type> <entity id> -> its newest entry as "action|user id|changed fields|", then
-# old>new of the first changed field.
+# old>new of the first changed field. (OPENJSON's keys have their own binary collation, so they
+# are put in the database's before joining them to the table's text.)
 newest() {
   in_tenant "$acme" "SELECT TOP (1) CONCAT(Action, '|', UserId, '|',
-      (SELECT STRING_AGG([key], ',') FROM OPENJSON(Changes)), '|',
-      (SELECT TOP (1) CONCAT(JSON_VALUE([value], '\$.old'), '>', JSON_VALUE([value], '\$.new')) FROM OPENJSON(Changes)))
+      (SELECT STRING_AGG([key], ',') FROM OPENJSON(Changes)) COLLATE DATABASE_DEFAULT, '|',
+      (SELECT TOP (1) CONCAT(JSON_VALUE([value], '\$.old'), '>', JSON_VALUE([value], '\$.new')) FROM OPENJSON(Changes)) COLLATE DATABASE_DEFAULT)
     FROM dbo.AuditLog WHERE EntityType = '$1' AND EntityId = $2 ORDER BY Id DESC;"
 }
 # The whole log's size, to show a refused request added nothing anywhere.
