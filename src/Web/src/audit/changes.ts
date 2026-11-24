@@ -23,7 +23,7 @@ const fieldLabels: Record<string, string> = {
 };
 
 export function fieldLabel(field: string): string {
-  return fieldLabels[field] ?? field;
+  return Object.hasOwn(fieldLabels, field) ? fieldLabels[field] : field;
 }
 
 export interface ChangeRow {

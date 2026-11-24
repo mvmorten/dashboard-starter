@@ -31,6 +31,7 @@ describe("changeRows", () => {
 
   test("a field without a label shows under its own name", () => {
     assert.equal(fieldLabel("vatNumber"), "vatNumber");
+    assert.equal(fieldLabel("constructor"), "constructor");
   });
 });
 
