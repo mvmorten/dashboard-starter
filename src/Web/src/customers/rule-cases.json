@@ -38,6 +38,11 @@
       "stored": { "name": "\ufeff" }
     },
     {
+      "case": "a name of only U+200B (zero-width space), which neither side trims, so both accept it",
+      "input": { "name": "\u200b" },
+      "stored": { "name": "\u200b" }
+    },
+    {
       "case": "U+0085 and no-break spaces around a name are trimmed",
       "input": { "name": "\u0085\u00a0Ada Okafor\u00a0\u0085" },
       "stored": { "name": "Ada Okafor" }
