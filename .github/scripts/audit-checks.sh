@@ -100,6 +100,8 @@ acme=$(tenant_id "Acme Corporation")
 expect "$(sign_in "$work/mem" cmem@example.com $PW)" 200
 expect "$(json '.permissions | join(",")')" "customers.edit,customers.view,members.view"
 globex=$(tenant_id "Globex Industries")
+# A sign-in starts in the tenant used last. Start in Acme whatever ran before this.
+expect "$(post "$work/mem" /api/auth/switch-tenant "{\"tenantId\":$acme}")" 200
 expect "$(sign_in "$work/ro" cro@example.com $PW)" 200
 expect "$(json '.permissions | join(",")')" "customers.view,members.view"
 admin_id=$(user_id cadmin@example.com)
@@ -264,11 +266,13 @@ expect "$(json '[.items[].userName] | join(",")')" "Customer Member,Customer Adm
 expect "$(json '.items[2].changes | keys | join(",")')" "notes"
 expect "$(json '.items[2].changes.notes.old'),$(json '.items[2].changes.notes.new')" "null,A note"
 expect "$(json '.items[0].changes'),$(json '.items[0].entityType'),$(json '.items[0].entityId')" "null,Customer,$id"
-echo "    A deleted customer still has one; an unknown one, or another tenant's, is a 404"
+echo "    A deleted customer still has one, for those who can see deleted customers (customers.edit);"
+echo "    for Read-only it's a 404, like the customer. So is an unknown one, or another tenant's"
 expect "$(get "$work/mem" "$live")" 200
 expect "$(remove "$work/mem" "$live" "$(json .rowVersion)")" 204
-expect "$(status "$work/ro" "$BASE/api/customers/$live/history")" 200
+expect "$(status "$work/mem" "$BASE/api/customers/$live/history")" 200
 expect "$(json '[.items[].action] | join(",")')" "Deleted,Created"
+expect "$(status "$work/ro" "$BASE/api/customers/$live/history")" 404
 expect "$(status "$work/mem" "$BASE/api/customers/2147483647/history")" 404
 expect "$(post "$work/mem" /api/auth/switch-tenant "{\"tenantId\":$globex}")" 200
 expect "$(create "$work/mem" "$tag in globex")" 201

@@ -166,10 +166,14 @@ public sealed class CustomersController : ControllerBase
   }
 
   /// <summary>
-  /// The customer's audit entries, newest first, 25 a page. Works for a deleted customer too:
-  /// its history is what you read before restoring it. It shows no more than the customer's own
-  /// fields and who changed them, so customers.view is enough.
+  /// The customer's audit entries, newest first, 25 a page. It shows no more than the
+  /// customer's own fields and who changed them, so customers.view is enough for a live customer.
   /// </summary>
+  /// <remarks>
+  /// A deleted customer has a history too (it's what you read before restoring it), but its
+  /// entries hold its name, email and notes, and deleted customers are only for people with
+  /// customers.edit. Without it, a deleted customer's history is a 404, like the customer.
+  /// </remarks>
   [HttpGet("{id:int}/history")]
   [Authorize(Policy = Permissions.CustomersView)]
   public async Task<ActionResult<AuditListResponse>> History(int id, [FromQuery] int page = 1, CancellationToken cancellationToken = default)
@@ -180,7 +184,10 @@ public sealed class CustomersController : ControllerBase
     }
 
     int tenantId = CurrentTenantId();
-    if (!await _customers.ExistsIncludingDeletedAsync(tenantId, id, cancellationToken))
+    bool found = CanEdit()
+      ? await _customers.ExistsIncludingDeletedAsync(tenantId, id, cancellationToken)
+      : await _customers.GetAsync(tenantId, id, cancellationToken) is not null;
+    if (!found)
     {
       return CustomerNotFound();
     }
