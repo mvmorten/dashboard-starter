@@ -76,6 +76,17 @@ export function CustomersIcon() {
   );
 }
 
+// A clock with a turned-back arrow: what happened, looking back.
+export function AuditIcon() {
+  return (
+    <Icon>
+      <path d="M3.5 12a8.5 8.5 0 102.6-6.1" />
+      <path d="M3 4v4h4" />
+      <path d="M12 7.5V12l3 2" />
+    </Icon>
+  );
+}
+
 export function ChevronDownIcon() {
   return (
     <Icon>

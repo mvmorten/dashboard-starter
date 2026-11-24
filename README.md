@@ -127,6 +127,7 @@ Who changed what, and when: one row in `AuditLog` (`sql/migrations/0016_audit_lo
 - **Names are joined when the log is read**, not copied into it: an entry stores the user's id, and shows their name as it is now.
 - **No backfill.** History starts with the release that added the table. A customer from before it simply has no entries until its next change.
 - **Append-only, enforced by the database.** The API's role is denied `UPDATE` and `DELETE` on `AuditLog`, which beats its schema-wide grant, so no bug or injected SQL in the API can rewrite history. The one exception is the demo sandbox cleanup, which removes whole tenants: it calls `dbo.DeleteDemoTenantAuditLog` (`sql/programmable`), a stored procedure that only works for an expired demo tenant. It's the repo's one stored procedure, and that permission boundary is why. CI proves the denials and the refusal.
+- **Seeing it:** the History section on each customer's page, and the **Audit log** page (`/audit`, in the menu for anyone with `audit.view`): the tenant's whole log on the data grid, newest first, with filters for the kind of thing and the member who did it, all in the URL. Each row links to the customer (a deleted one's page shows it as deleted) or to Members. The words for an entry are in a pure module with tests, `src/Web/src/audit/changes.ts`.
 - **Reading it:** `GET /api/customers/{id}/history` (anyone with `customers.view`; a deleted customer's history needs `customers.edit`) and `GET /api/audit?entityType=&userId=&page=` (`audit.view`). Both are newest first, 25 a page, ordered by `Id`. Filter values come from a fixed list (`AuditLog.EntityTypes`); an unknown one is a `400`.
 - **Auditing your next entity:** add its name to `AuditLog.EntityTypes`, and in each method that inserts, updates, deletes or restores it, call `AuditLog.WriteAsync` before the commit, with an `AuditChanges` built from the fields you choose. For an update, read the row first under `UPDLOCK` to get the old values, as `CustomerStore.UpdateAsync` does. Then add a case to `.github/scripts/audit-checks.sh`.
 - **Left to a fork:** retention. Nothing here ever deletes old entries. If you need "keep seven years, then purge", write a second stored procedure next to the cleanup's, on purpose, rather than lifting the `DENY`. A log that many people filter by user would also want an index on `(TenantId, UserId, Id)`.
@@ -191,14 +192,15 @@ Customers is the sample module: the pattern to copy for your own tenant-owned re
 
 - **Validation is on the server**: `400` with ProblemDetails `errors` keyed by field (`name`, `email`, ...). Text is trimmed, an empty optional field is stored as `NULL`, and the lengths are the column lengths. The form checks the same rules first, so mistakes show without a round trip (see "Forms" below), but the server has the final word.
 - **Email isn't unique.** Two customers can share an address (a family, a shared inbox). User accounts are different: `Users.Email` is unique, because it's how you sign in.
-- **The list** (`/customers`) is the data grid (below): a table on a wide screen and cards on a phone, with a search box, a status filter, sorting, and 25 a page. All of it is in the URL, so Back, a reload and a shared link show the same page.
+- **The list** (`/customers`) is the data grid (below): a table on a wide screen and cards on a phone, with a search box, a status filter, sorting, and 25 a page. All of it is in the URL, so Back, a reload and a shared link show the same page. With `customers.edit`, the status filter has one more choice, **Deleted**: the deleted customers instead of the live ones, which is how you find one to restore.
 - **The form** (`/customers/new`, `/customers/{id}`) is built from the shared field components (see "Forms" below) and checks the rules before it saves. Without `customers.edit` the same page shows the fields to read, and there's no "New customer" button. Delete asks once, on the page. Leaving with unsaved changes asks first: closing the tab, or following a link. React Router's `useBlocker` only works in its data mode, so `useUnsavedChangesWarning` listens for link clicks itself. It doesn't catch the browser's Back button.
-- **Restoring** needs no cap check in a demo tenant: the row cap already counts deleted rows.
-- **Not yet:** the screens for history, the audit page and restoring (the next pull request). The API above is complete.
+- **History** is a section at the bottom of the customer's page, for everyone who can see the customer: who, when, and for a change, each field as it was and as it is now. It's a stacked list at every width. A long value (notes can be 2000 characters) shows its start with a "Show all" button. Times are the full date and time in your own time zone, as text, with nothing to hover. A customer from before the audit log existed says so: "Earlier changes weren't recorded."
+- **A deleted customer's page** (`customers.edit` only; for anyone else it's "No such customer") shows it plainly as deleted, with who and when, its fields to read, its history, and **Restore**. Restore asks once, on the page, then shows the customer's form with "Customer restored." That notice is kept in memory, not in history state, so a reload doesn't say it again. Restoring needs no cap check in a demo tenant: the row cap already counts deleted rows.
+- **One-time notices** that do cross a navigation ("Deleted: ...", "Customer added.", "Password changed") go through one hook, `useArrivalNotice` (`src/Web/src/layout`): it reads the notice from history state once and removes it from the history entry, because history state survives a reload.
 
 ### The data grid
 
-Customers and Members share one grid, in `src/Web/src/grid/`. It's built by hand, without a grid library: what it needs is a list of columns, header buttons, a sort select for phones and a column picker, about the size of the code a library would need to set it up. TanStack Table would start to earn its place with column resizing or reordering, multi-column sort, or very long lists in the browser; none of those are here yet.
+Customers, Members and the audit log share one grid, in `src/Web/src/grid/`. It's built by hand, without a grid library: what it needs is a list of columns, header buttons, a sort select for phones and a column picker, about the size of the code a library would need to set it up. TanStack Table would start to earn its place with column resizing or reordering, multi-column sort, or very long lists in the browser; none of those are here yet.
 
 - **The view is in the URL.** `?search=&status=&sort=&dir=&page=`, with the API's own names and values, so the address bar shows the request the list makes. Defaults are left out: the plain list's URL is just `/customers`. A new search, filter or sort goes back to page 1. **Clear** appears when anything differs from the default. The rules are in `listState.ts`, a pure module with tests.
 - **Follow a sort from click to SQL:** the header button calls `sortBy()` (`listState.ts`), the URL becomes `?sort=updated&dir=desc`, `useCustomers` sends the same to `GET /api/customers`, the controller checks `updated` against `CustomerStore.SortColumns`, and the query ends `ORDER BY c.UpdatedAt DESC, c.Id DESC`. The request's text only ever picks a key in that list; it never reaches the SQL.
@@ -300,9 +302,9 @@ The goal is the 80% every dashboard app needs on day one:
 - [x] Users, roles, and permissions, enforced on both API and UI
 - [x] A reusable data grid with server-side paging, sorting, and filtering
 - [x] CRUD example module showing the end-to-end pattern, including edit conflicts
-- [ ] Forms with shared validation rules
+- [x] Forms with shared validation rules
 - [ ] Settings and user profile pages
-- [ ] Audit log of who changed what
+- [x] Audit log of who changed what
 - [ ] Dashboard home with sample KPI cards and charts
 - [ ] Error handling, logging, and health checks
 - [ ] Automated tests for API and UI

@@ -13,6 +13,11 @@ export function formatUtcDate(value: string): string {
   return fromUtc(value).toLocaleDateString(undefined, { dateStyle: "medium" });
 }
 
+// The same moment as an ISO string with its zone, for <time dateTime>.
+export function utcIso(value: string): string {
+  return fromUtc(value).toISOString();
+}
+
 function fromUtc(value: string): Date {
   return new Date(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`);
 }

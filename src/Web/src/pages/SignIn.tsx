@@ -1,12 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import {
-  Link,
-  Navigate,
-  useLocation,
-  useNavigate,
-  useSearchParams,
-} from "react-router";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { ApiError, refreshAntiforgeryToken } from "../api";
 import AuthCard from "../auth/AuthCard";
 import { safeReturnUrl, signIn, startDemo } from "../auth/session";
@@ -14,6 +8,7 @@ import { useMe } from "../auth/useMe";
 import { useSignInInfo } from "../auth/useSignInInfo";
 import PasswordField from "../forms/PasswordField";
 import TextField from "../forms/TextField";
+import { useArrivalNotice } from "../layout/useArrivalNotice";
 import { usePageTitle } from "../layout/usePageTitle";
 
 // A plain form with the autocomplete values password managers look for ("username",
@@ -24,9 +19,9 @@ export default function SignIn() {
   usePageTitle("Sign in");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const location = useLocation();
   // A message from the page that sent us here, such as "Password changed" after a reset.
-  const notice = readNotice(location.state);
+  // Shown once: a reload doesn't say it again (layout/useArrivalNotice.ts).
+  const notice = useArrivalNotice<{ notice: string }>()[0]?.notice ?? null;
   const [searchParams] = useSearchParams();
   const returnUrl = safeReturnUrl(searchParams.get("returnUrl"));
   const { data: me } = useMe();
@@ -154,15 +149,6 @@ export default function SignIn() {
       )}
     </AuthCard>
   );
-}
-
-function readNotice(state: unknown): string | null {
-  if (state && typeof state === "object" && "notice" in state) {
-    const notice = (state as { notice: unknown }).notice;
-    return typeof notice === "string" ? notice : null;
-  }
-
-  return null;
 }
 
 // "2 hours", "90 minutes", "24 hours".

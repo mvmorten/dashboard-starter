@@ -1,0 +1,162 @@
+/* The audit log's screens: a customer's History (pages/customer/History.tsx), the deleted
+   customer's page (DeletedCustomer.tsx), and the audit page (pages/Audit.tsx). Phone first;
+   min-width queries add room. The list's table and cards are in lists.css. */
+
+/* A button that reads as a link, for "Show all" inside a value. Still a full-size target. */
+.link-button {
+  min-height: var(--target);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* History: a stacked list at every width, one entry under another. */
+.history {
+  max-width: 48rem;
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+}
+
+.history h2 {
+  margin: 0 0 var(--space-4);
+  font-size: 1.25rem;
+}
+
+.history-list {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.history-list > li {
+  padding: var(--space-3) var(--space-4);
+}
+
+.history-list > li + li {
+  border-top: 1px solid var(--border);
+}
+
+/* Who did what, then when: stacked on a phone, on one line once there's room. */
+.history-head {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.history-head time,
+.history-note {
+  color: var(--muted);
+}
+
+.history-note {
+  margin: 0;
+}
+
+@media (min-width: 36rem) {
+  .history-head {
+    grid-template-columns: 1fr auto;
+    gap: var(--space-4);
+    align-items: baseline;
+  }
+}
+
+.history-changes {
+  margin: var(--space-3) 0 0;
+}
+
+.history-changes > div + div {
+  margin-top: var(--space-3);
+}
+
+.history-changes dt {
+  font-weight: 600;
+}
+
+/* "Was" and "Now", each on its own line, the tag in a narrow column beside the value. */
+.history-changes dd {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+/* A new customer's values have no tag. */
+.history-changes dd > :only-child {
+  grid-column: 1 / -1;
+}
+
+.history-tag {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* A long value and its "Show all" button, the button under the text. */
+.history-long {
+  display: grid;
+  justify-items: start;
+  min-width: 0;
+}
+
+/* The deleted customer's page. */
+.deleted-banner {
+  max-width: 48rem;
+  margin: var(--space-3) 0 var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--failed);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.restore-section {
+  max-width: 36rem;
+  margin-top: var(--space-6);
+}
+
+/* The audit page: what the entry is about, and what kind of thing that is. */
+.audit-entity {
+  display: grid;
+  gap: 0 var(--space-2);
+}
+
+.audit-entity a {
+  overflow-wrap: anywhere;
+}
+
+.audit-kind {
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
+/* A card that isn't one link (it holds a link). */
+.audit-card {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+}
+
+.audit-card p {
+  margin: 0;
+}
+
+.audit-card-what {
+  font-weight: 600;
+}
+
+/* The link is the card's tap target: give it the height. */
+.audit-card-what a {
+  display: inline-block;
+  padding: var(--space-2) 0;
+}
+
+.audit-card-meta {
+  color: var(--muted);
+}

@@ -4,6 +4,7 @@ import {
   type Customer,
   type CustomerField,
 } from "../../customers/customers";
+import History from "./History";
 import { BackLink, FieldValue, LastChanged } from "./parts";
 
 // Without customers.edit: the same fields, to read.
@@ -24,6 +25,7 @@ export default function CustomerView({ customer }: { customer: Customer }) {
           </div>
         ))}
       </dl>
+      <History customerId={customer.id} />
     </>
   );
 }

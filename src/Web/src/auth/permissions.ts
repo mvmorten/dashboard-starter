@@ -10,6 +10,7 @@ export const Permissions = {
   membersManage: "members.manage",
   customersView: "customers.view",
   customersEdit: "customers.edit",
+  auditView: "audit.view",
 } as const;
 
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
