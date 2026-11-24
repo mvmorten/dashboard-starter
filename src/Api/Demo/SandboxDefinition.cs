@@ -1,10 +1,12 @@
 using System.Collections.Generic;
+using DashboardStarter.Db.Audit;
 
 namespace DashboardStarter.Api.Demo;
 
 /// <summary>
 /// What every demo sandbox is made of: two tenants, the visitor's role in each, the sample
-/// members they see on the Members page, and each tenant's sample customers. <see cref="SandboxStore"/> creates one from this.
+/// members they see on the Members page, each tenant's sample customers, and a little history
+/// for the audit log. <see cref="SandboxStore"/> creates one from this.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -31,6 +33,14 @@ public static class SandboxDefinition
 
   public static IReadOnlyList<string> Tenants { get; } = ["Demo", "Other Demo"];
 
+  /// <summary>
+  /// How old the sample customers are, in days: older than anything in <see cref="History"/>, so
+  /// no customer was changed before it was made.
+  /// </summary>
+  public const int SampleDataAgeDays = 30;
+
+  private const string DeletedCustomerName = "Harbor Light Books (duplicate)";
+
   public static IReadOnlyList<SandboxMembership> Visitor { get; } =
   [
     new("Demo", "Admin", "Active"),
@@ -53,6 +63,10 @@ public static class SandboxDefinition
   /// separate. Emails are on the reserved .example domain and phone numbers in the 555-0100 to
   /// 555-0199 range set aside for fiction, so none of them reach anyone.
   /// </summary>
+  /// <remarks>
+  /// The last one in Demo starts out deleted (<see cref="History"/>), so the Deleted filter and
+  /// Restore have something to show. It counts toward the demo row cap like any deleted row.
+  /// </remarks>
   public static IReadOnlyDictionary<string, IReadOnlyList<SandboxCustomer>> Customers { get; } =
     new Dictionary<string, IReadOnlyList<SandboxCustomer>>
     {
@@ -88,6 +102,7 @@ public static class SandboxDefinition
         new("Silver Birch Yoga", "namaste@silverbirch.example", "+1 555 0127", "Active", null),
         new("Thistle & Thorn Tattoo", "ink@thistlethorn.example", "+1 555 0128", "Active", null),
         new("Willow Creek Kennels", "bark@willowcreek.example", "+1 555 0129", "Active", null),
+        new(DeletedCustomerName, "books@harborlight.example", null, "Active", "Entered twice by mistake."),
       ],
       ["Other Demo"] =
       [
@@ -120,9 +135,60 @@ public static class SandboxDefinition
         new("Zara Ahmed", "zara.ahmed@mail.example", "+1 555 0156", "Active", null),
       ],
     };
+
+  /// <summary>
+  /// A little history in Demo, so a new sandbox's audit page and a few customers' History
+  /// aren't empty: edits by the sample members that led to the sample data as it is (each
+  /// "new" value is the one in <see cref="Customers"/> or <see cref="SampleMembers"/>), and one
+  /// customer entered twice and deleted. Everything else has no entries, like real data from
+  /// before the audit log existed.
+  /// </summary>
+  public static IReadOnlyList<SandboxHistoryEntry> History { get; } =
+  [
+    new("Demo", 150, "priya.shah", AuditLog.Customer, DeletedCustomerName, AuditLog.Created, []),
+    new("Demo", 149, "sam.rivera", AuditLog.Customer, DeletedCustomerName, AuditLog.Deleted, []),
+    new("Demo", 120, "sam.rivera", AuditLog.Customer, "Copperleaf Studio", AuditLog.Updated,
+    [
+      new("status", "Active", "Inactive"),
+      new("notes", null, "Closed for renovation until spring."),
+    ]),
+    new("Demo", 72, "priya.shah", AuditLog.Customer, "Cascade Bike Works", AuditLog.Updated,
+    [
+      new("notes", null, "Asked about a bulk discount for team kits."),
+    ]),
+    new("Demo", 48, "priya.shah", AuditLog.Customer, "Fernhill Garden Center", AuditLog.Updated,
+    [
+      new("email", "hello@fernhill.example", null),
+      new("notes", null, "Prefers phone calls to email."),
+    ]),
+    new("Demo", 26, "sam.rivera", AuditLog.Member, "jordan.blake", AuditLog.Updated,
+    [
+      new("status", "Active", "Disabled"),
+    ]),
+  ];
 }
 
 public sealed record SandboxMembership(string TenantName, string RoleName, string Status);
+
+/// <summary>
+/// One audit entry a sandbox starts with. <see cref="SandboxStore"/> writes it and makes the
+/// row it's about agree with it (who and when).
+/// </summary>
+/// <param name="HoursAgo">How long before the sandbox was made it happened. Less than <see cref="SandboxDefinition.SampleDataAgeDays"/> days.</param>
+/// <param name="ByEmailName">The sample member who did it (<see cref="SandboxSampleMember.EmailName"/>).</param>
+/// <param name="EntityType"><see cref="AuditLog.Customer"/> or <see cref="AuditLog.Member"/>.</param>
+/// <param name="EntityName">The customer's name, or the sample member's EmailName.</param>
+/// <param name="Changes">The changed fields. Leave empty for Created (taken from the customer itself), Deleted and Restored.</param>
+public sealed record SandboxHistoryEntry(
+  string TenantName,
+  int HoursAgo,
+  string ByEmailName,
+  string EntityType,
+  string EntityName,
+  string Action,
+  IReadOnlyList<SandboxFieldChange> Changes);
+
+public sealed record SandboxFieldChange(string Field, string? Old, string? New);
 
 /// <param name="EmailName">The part of the address before the sandbox's own suffix: sam.rivera-1a2b3c4d5e6f@demo.invalid.</param>
 public sealed record SandboxSampleMember(string EmailName, string DisplayName, IReadOnlyList<SandboxMembership> Memberships);

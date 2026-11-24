@@ -35,8 +35,15 @@ public sealed class SandboxCleanup
   /// SESSION_CONTEXT, so Row-Level Security sees them. In order: children first. A table here
   /// is covered entirely, including any of its own foreign keys to Users.
   /// </summary>
+  /// <remarks>
+  /// AuditLog is the one table the API's role may not delete from (it's append-only,
+  /// sql/migrations/0016_audit_log.sql), so its rows go through the stored procedure that only
+  /// works for an expired demo tenant. First in the list: its entries point at users and are
+  /// about the rows below.
+  /// </remarks>
   public static IReadOnlyList<OwnedRows> TenantRows { get; } =
   [
+    new("dbo.AuditLog", "TenantId", "EXEC dbo.DeleteDemoTenantAuditLog @TenantId = @Id;"),
     new("dbo.Customers", "TenantId"),
     new("dbo.TenantUsers", "TenantId"),
   ];
@@ -268,9 +275,10 @@ public sealed class SandboxCleanup
 /// Table and column are names written in this file, never values from outside, so building the
 /// statement from them is safe: the id is still a parameter.
 /// </remarks>
-public sealed record OwnedRows(string Table, string Column)
+/// <param name="DeleteStatement">For a table that isn't deleted with a plain DELETE: the statement to run instead, taking @Id.</param>
+public sealed record OwnedRows(string Table, string Column, string? DeleteStatement = null)
 {
-  public string DeleteSql => $"DELETE FROM {Table} WHERE {Column} = @Id;";
+  public string DeleteSql => DeleteStatement ?? $"DELETE FROM {Table} WHERE {Column} = @Id;";
 }
 
 internal sealed record ExpiredUserState(bool IsExpired, bool HasMemberships);

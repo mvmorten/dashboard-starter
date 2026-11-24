@@ -40,5 +40,8 @@ GO
 CREATE SECURITY POLICY Security.TenantAccessPolicy
   ADD FILTER PREDICATE Security.fn_TenantAccessPredicate(TenantId) ON dbo.Customers,
   ADD BLOCK PREDICATE Security.fn_TenantAccessPredicate(TenantId) ON dbo.Customers AFTER INSERT,
-  ADD BLOCK PREDICATE Security.fn_TenantAccessPredicate(TenantId) ON dbo.Customers AFTER UPDATE
+  ADD BLOCK PREDICATE Security.fn_TenantAccessPredicate(TenantId) ON dbo.Customers AFTER UPDATE,
+  ADD FILTER PREDICATE Security.fn_TenantAccessPredicate(TenantId) ON dbo.AuditLog,
+  ADD BLOCK PREDICATE Security.fn_TenantAccessPredicate(TenantId) ON dbo.AuditLog AFTER INSERT,
+  ADD BLOCK PREDICATE Security.fn_TenantAccessPredicate(TenantId) ON dbo.AuditLog AFTER UPDATE
 WITH (STATE = ON, SCHEMABINDING = ON);

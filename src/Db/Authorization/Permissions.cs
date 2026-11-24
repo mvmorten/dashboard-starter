@@ -10,7 +10,7 @@ namespace DashboardStarter.Db.Authorization;
 /// <remarks>
 /// <para>
 /// Which roles have which permissions is data: the RolePermissions table, filled by migrations
-/// (sql/migrations/0009_roles.sql, 0014_customer_permissions.sql). To add one, add a constant
+/// (sql/migrations/0009_roles.sql, 0014_customer_permissions.sql, 0017_audit_permission.sql). To add one, add a constant
 /// here, add it to <see cref="All"/>, and write a migration that grants it to the roles that
 /// should have it. Every value in RolePermissions must be one of these; CI checks that.
 /// </para>
@@ -25,6 +25,7 @@ public static class Permissions
   public const string MembersManage = "members.manage";
   public const string CustomersView = "customers.view";
   public const string CustomersEdit = "customers.edit";
+  public const string AuditView = "audit.view";
 
   /// <summary>Every permission, with a one-line description of what it allows.</summary>
   public static IReadOnlyDictionary<string, string> All { get; } = new Dictionary<string, string>
@@ -32,6 +33,7 @@ public static class Permissions
     [MembersView] = "See the tenant's members, their roles, and when they last signed in.",
     [MembersManage] = "Change members' roles, and disable or re-enable their access to the tenant.",
     [CustomersView] = "See the tenant's customers: the list, search, and each customer's details.",
-    [CustomersEdit] = "Add, change, and delete the tenant's customers.",
+    [CustomersEdit] = "Add, change, delete, and restore the tenant's customers, and see the deleted ones.",
+    [AuditView] = "See the tenant's audit log: who changed what, across customers and members.",
   };
 }

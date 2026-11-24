@@ -1,6 +1,8 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using DashboardStarter.Db.Scripts;
+using DashboardStarter.Db.Tenants;
 using DashboardStarter.Db.Users;
 using Microsoft.Data.SqlClient;
 
@@ -53,10 +55,17 @@ internal static class SetRoleCommand
   }
 
   /// <summary>Changes the role through the shared rule, or throws with what went wrong.</summary>
+  /// <remarks>
+  /// The change writes an audit entry, with no user: nobody is signed in here, so the audit page
+  /// shows it as done by the system. AuditLog is tenant-owned and Row-Level Security exempts no
+  /// login, so the connection works in the tenant while the change runs.
+  /// </remarks>
   public static async Task ChangeRoleAsync(SqlConnection connection, SqlTransaction transaction, TenantRow tenant, int userId, RoleRow role)
   {
+    await TenantSession.SetAsync(connection, transaction, tenant.Id, readOnly: false, CancellationToken.None);
     MembershipChange change = await Memberships.SetRoleAsync(
       connection, transaction, tenant.Id, userId, role.Id, expectedRowVersion: null, actorUserId: null);
+    await TenantSession.ClearAsync(connection, transaction, CancellationToken.None);
 
     switch (change.Result)
     {

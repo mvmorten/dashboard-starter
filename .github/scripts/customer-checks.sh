@@ -57,7 +57,7 @@ expect "$(get "$work/none" 1)" 401
 
 echo "2. Each role's permissions in /me"
 expect "$(sign_in "$work/admin" cadmin@example.com $PW)" 200
-expect "$(json '.permissions | join(",")')" "customers.edit,customers.view,members.manage,members.view"
+expect "$(json '.permissions | join(",")')" "audit.view,customers.edit,customers.view,members.manage,members.view"
 expect "$(sign_in "$work/mem" cmem@example.com $PW)" 200
 expect "$(json '.permissions | join(",")')" "customers.edit,customers.view,members.view"
 acme=$(tenant_id "Acme Corporation")
@@ -317,7 +317,7 @@ expect "$(order)" "$acme_st"
 
 echo "    Unknown values are a 400 that names them, never a quiet default"
 for bad in "sort=Name" "sort=bogus" "sort=c.Name; DROP TABLE dbo.Customers" "dir=up" "dir=DESC" \
-  "status=Maybe" "status=active"; do
+  "status=Maybe" "status=active" "status=deleted"; do
   expect "$(list "$work/mem" "$bad")" 400
   expect "$(json '.errors | keys | join(",")')" "${bad%%=*}"
 done
@@ -330,9 +330,11 @@ expect "$(status "$work/demo" "$BASE/api/auth/me")" 200
 demo=$(json .currentTenantId)
 expect "$(status "$work/demo" "$BASE/api/customers")" 200
 expect "$(json .total)" 30
-# Up to 199 rows, the extra ones already deleted (as create-then-delete would leave them).
+# A sandbox starts with 31 rows: its 30 customers and one that's already deleted. Up to 199,
+# the extra ones deleted too (as create-then-delete would leave them).
+expect "$(in_tenant "$demo" "SELECT COUNT(*) FROM dbo.Customers;")" 31
 in_tenant "$demo" "INSERT INTO dbo.Customers (TenantId, Name, DeletedAt)
-  SELECT TOP (169) $demo, N'Deleted filler', SYSUTCDATETIME() FROM sys.all_objects;"
+  SELECT TOP (168) $demo, N'Deleted filler', SYSUTCDATETIME() FROM sys.all_objects;"
 expect "$(in_tenant "$demo" "SELECT COUNT(*) FROM dbo.Customers;")" 199
 expect "$(create "$work/demo" "Customer 200")" 201
 expect "$(create "$work/demo" "Customer 201")" 422

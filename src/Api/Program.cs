@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Threading.RateLimiting;
 using System.Threading.Tasks;
+using DashboardStarter.Api.Audit;
 using DashboardStarter.Api.Auth;
 using DashboardStarter.Api.Customers;
 using DashboardStarter.Api.Database;
@@ -183,6 +184,7 @@ public static class Program
     builder.Services.AddSingleton<PasswordResetStore>();
     builder.Services.AddSingleton<MemberStore>();
     builder.Services.AddSingleton<CustomerStore>();
+    builder.Services.AddSingleton<AuditStore>();
 
     IConfigurationSection resetSection = builder.Configuration.GetSection(PasswordResetOptions.SectionName);
     PasswordResetOptions resetOptions = resetSection.Get<PasswordResetOptions>() ?? new PasswordResetOptions();

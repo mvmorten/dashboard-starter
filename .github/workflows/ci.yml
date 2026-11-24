@@ -298,10 +298,35 @@ jobs:
           bash .github/scripts/customer-checks.sh || { cat api-customers.log; exit 1; }
           kill $pid
 
+      # The audit log (step 12): each write endpoint writes exactly one entry with the right action,
+      # user and changed fields, in the same transaction as the change (an entry that can't be
+      # written takes the change down with it); a refused request or a save that changes nothing
+      # writes none; restore; the history and audit reads; and the log is append-only for the
+      # API's login, with the sandbox cleanup's procedure the one narrow way to remove entries.
+      # Uses the customer check users, and leaves entries in Acme and Globex for the next step.
+      - name: Audit checks
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=DashboardStarter;User Id=dashboard_app;Password=AppDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          BASE: http://localhost:5091
+          DB: dotnet run --no-build --configuration Release --project src/Db --
+          SQLCMD: docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1
+          SQLCMD_APP: docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d DashboardStarter -U dashboard_app -P AppDevOnly!ChangeMe1
+        run: |
+          dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5091 > api-audit.log 2>&1 &
+          pid=$!
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:5091/api/health -o /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          bash .github/scripts/audit-checks.sh || { cat api-audit.log; exit 1; }
+          kill $pid
+
       # Row-Level Security, with sqlcmd and no API: the policy covers every table with a TenantId
       # (TenantUsers excepted), no tenant set means no rows and no writes, and one tenant's context
       # can't read or write another's. As the API's login and as the admin: neither is exempt.
-      # Uses the customers the step above left in Acme and Globex.
+      # Uses the customers and audit entries the steps above left in Acme and Globex.
       - name: Row-Level Security checks
         env:
           SQLCMD: docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d DashboardStarter -U sa -P LocalDevOnly!ChangeMe1
@@ -632,8 +657,74 @@ jobs:
           [ "$($sqlcmd -Q "SET NOCOUNT ON; EXEC sp_set_session_context @key = N'TenantId', @value = $old_tenant; SELECT COUNT(*) FROM dbo.Customers;")" = 0 ]
           if grep -q 'Demo cleanup failed' api-upgrade8.log; then echo "Cleanup failed."; exit 1; fi
 
-      # Data migrations on a tenant-owned table, on the database from the step above (it has real
-      # tenants and a demo sandbox). Written the obvious way, a data step sees no rows (no tenant
+      # A database made by step 11's own code (pinned to the v0.11 commit), with a visitor in a
+      # sandbox who has a customer, migrated by this build. Step 11's API keeps working on the new
+      # schema, as it has to during a deploy, and what it changes then has no entry. Then this
+      # build's API, with the same session: the old customer is intact with an empty history
+      # (there's no backfill; history starts with this release), a change to it writes the first
+      # entry, and cleanup removes the sandbox, that entry included. Its own database.
+      - name: Upgrade from step 11 (the audit log arrives)
+        env:
+          ConnectionStrings__Default: Server=127.0.0.1,1433;Database=UpgradeStep11;User Id=sa;Password=LocalDevOnly!ChangeMe1;Encrypt=True;TrustServerCertificate=True
+          DOTNET_ENVIRONMENT: Development
+          Demo__CleanupInterval: "00:00:02"
+          Auth__SessionCheckSeconds: "2"
+        run: |
+          sqlcmd="docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d UpgradeStep11 -U sa -P LocalDevOnly!ChangeMe1"
+          wait_for() { for attempt in $(seq 1 60); do curl -sf "$1/api/health" -o /dev/null && return 0; sleep 1; done; return 1; }
+          step11=4f182ef1ca1efd715fd538189d55782edf538264
+          git fetch --no-tags --depth 1 origin "$step11"
+          git worktree add ../step11 "$step11"
+          (cd ../step11 && dotnet build src/Api --configuration Release && \
+            dotnet run --no-build --configuration Release --project src/Db -- migrate && \
+            dotnet run --no-build --configuration Release --project src/Db -- seed)
+          (cd ../step11 && dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5092) > api-step11.log 2>&1 &
+          wait_for http://localhost:5092
+          source .github/scripts/lib.sh
+          BASE=http://localhost:5092
+          expect "$(start_demo "$work/old")" 204
+          expect "$(post "$work/old" /api/customers '{"name":"Made by step 11","status":"Active","notes":"Before the audit log"}')" 201
+          customer=$(jq -r .id "$body")
+
+          dotnet run --no-build --configuration Release --project src/Db -- migrate
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.tables WHERE name = N'AuditLog';")" = 1 ]
+          echo "Step 11's API on the new schema:"
+          expect "$(status "$work/old" "$BASE/api/customers/$customer")" 200
+          expect "$(put "$work/old" "/api/customers/$customer" "{\"name\":\"Changed by step 11\",\"status\":\"Active\",\"rowVersion\":\"$(jq -r .rowVersion "$body")\"}")" 200
+          pkill -f 'localhost:5092' || true
+
+          dotnet run --no-build --configuration Release --project src/Api -- --urls http://localhost:5093 > api-upgrade11.log 2>&1 &
+          pid=$!
+          wait_for http://localhost:5093 || { cat api-upgrade11.log; exit 1; }
+          BASE=http://localhost:5093
+          echo "The step 11 sandbox, in this build:"
+          expect "$(status "$work/old" "$BASE/api/auth/me")" 200
+          old_tenant=$(jq -r .currentTenantId "$body")
+          expect "$(status "$work/old" "$BASE/api/customers")" 200
+          expect "$(jq -r .total "$body")" 31
+          expect "$(status "$work/old" "$BASE/api/customers/$customer")" 200
+          expect "$(jq -r '.name + "|" + .notes' "$body")" "Changed by step 11|"
+          version=$(jq -r .rowVersion "$body")
+          expect "$(status "$work/old" "$BASE/api/customers/$customer/history")" 200
+          expect "$(jq -r .total "$body")" 0
+          expect "$(status "$work/old" "$BASE/api/audit")" 200
+          expect "$(jq -r .total "$body")" 0
+          expect "$(put "$work/old" "/api/customers/$customer" "{\"name\":\"Changed after the upgrade\",\"status\":\"Active\",\"rowVersion\":\"$version\"}")" 200
+          expect "$(status "$work/old" "$BASE/api/customers/$customer/history")" 200
+          expect "$(jq -r '[.total, .items[0].action, .items[0].changes.name.old] | join("|")' "$body")" "1|Updated|Changed by step 11"
+          expect "$(post "$work/old" /api/auth/sign-out)" 204
+          for attempt in $(seq 1 30); do
+            if [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Tenants WHERE Id = $old_tenant;")" = 0 ]; then break; fi
+            sleep 1
+          done
+          kill $pid
+          cat api-upgrade11.log
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Tenants WHERE Id = $old_tenant;")" = 0 ]
+          [ "$($sqlcmd -Q "SET NOCOUNT ON; EXEC sp_set_session_context @key = N'TenantId', @value = $old_tenant; SELECT COUNT(*) FROM dbo.AuditLog;")" = 0 ]
+          if grep -q 'Demo cleanup failed' api-upgrade11.log; then echo "Cleanup failed."; exit 1; fi
+
+      # Data migrations on a tenant-owned table, on the database from the step 8 upgrade (it has
+      # real tenants and a demo sandbox). Written the obvious way, a data step sees no rows (no tenant
       # in SESSION_CONTEXT) and quietly changes nothing; with "-- for-each-tenant" as its first
       # line the runner runs it once per tenant, in that tenant, in one transaction, and a failure
       # in any tenant rolls it back in all of them. The probe migrations only exist in this job.
