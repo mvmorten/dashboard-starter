@@ -109,8 +109,11 @@ public sealed class PasswordController : ControllerBase
   [HttpPost("reset-password")]
   public async Task<IActionResult> ResetPassword(ResetPasswordRequest request, CancellationToken cancellationToken)
   {
+    // Missing and blank are the same to the rules: too short.
+    string newPassword = request.NewPassword ?? "";
+
     // Length first: it doesn't need the account, and a bad password shouldn't cost a lookup.
-    string? lengthProblem = PasswordRules.CheckLength(request.NewPassword);
+    string? lengthProblem = PasswordRules.CheckLength(newPassword);
     if (lengthProblem is not null)
     {
       return PasswordRejected(lengthProblem);
@@ -124,13 +127,13 @@ public sealed class PasswordController : ControllerBase
       return InvalidLink();
     }
 
-    string? problem = PasswordRules.Check(request.NewPassword, recipient.Email);
+    string? problem = PasswordRules.Check(newPassword, recipient.Email);
     if (problem is not null)
     {
       return PasswordRejected(problem);
     }
 
-    string passwordHash = _passwordHasher.Hash(request.NewPassword);
+    string passwordHash = _passwordHasher.Hash(newPassword);
 
     // Checks the token again, atomically: it may have been used since the lookup above.
     int? userId = await _resetStore.CompleteResetAsync(tokenHash, passwordHash, cancellationToken);
@@ -183,7 +186,9 @@ public sealed class PasswordController : ControllerBase
         detail: "The current password is incorrect.");
     }
 
-    string? problem = PasswordRules.Check(request.NewPassword, user.Email);
+    // Missing and blank are the same to the rules: too short.
+    string newPassword = request.NewPassword ?? "";
+    string? problem = PasswordRules.Check(newPassword, user.Email);
     if (problem is not null)
     {
       return PasswordRejected(problem);
@@ -191,7 +196,7 @@ public sealed class PasswordController : ControllerBase
 
     byte[] newStamp = RandomNumberGenerator.GetBytes(16);
     bool changed = await _userStore.ChangePasswordAsync(
-      userId, user.PasswordHash, _passwordHasher.Hash(request.NewPassword), newStamp, cancellationToken);
+      userId, user.PasswordHash, _passwordHasher.Hash(newPassword), newStamp, cancellationToken);
     if (!changed)
     {
       // The password changed in between (another tab, a reset link). Ask to try again.
