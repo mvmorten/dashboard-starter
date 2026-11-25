@@ -48,12 +48,18 @@ public sealed record DemoInfo(int SandboxHours, int SandboxIdleMinutes);
 public sealed record ForgotPasswordRequest([Required, MaxLength(256)] string Email);
 
 /// <summary>Body of POST /api/auth/reset-password: the token from the email link, and the new password.</summary>
-/// <remarks>The password's real rules (PasswordRules) are checked in the controller, with a message that says which one.</remarks>
+/// <remarks>
+/// The password's real rules (PasswordRules) are checked in the controller, with a message that
+/// says which one. NewPassword has no [Required] and is nullable on purpose: a blank one gets
+/// PasswordRules' length message, the same words the browser shows, not ASP.NET's "field is
+/// required". password-cases.json has a case for it.
+/// </remarks>
 public sealed record ResetPasswordRequest(
   [Required, MaxLength(256)] string Token,
-  [Required, MaxLength(1024)] string NewPassword);
+  [MaxLength(1024)] string? NewPassword);
 
 /// <summary>Body of POST /api/auth/change-password.</summary>
+/// <remarks>NewPassword is nullable with no [Required], like <see cref="ResetPasswordRequest"/>, so a blank one gets PasswordRules' message.</remarks>
 public sealed record ChangePasswordRequest(
   [Required, MaxLength(1024)] string CurrentPassword,
-  [Required, MaxLength(1024)] string NewPassword);
+  [MaxLength(1024)] string? NewPassword);
