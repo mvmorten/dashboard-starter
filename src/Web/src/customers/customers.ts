@@ -16,7 +16,13 @@ export interface CustomerListItem {
   // ISO 8601, UTC, without a zone marker (format.ts adds it).
   createdAt: string;
   updatedAt: string;
+  // Null except in the Deleted list.
+  deletedAt: string | null;
 }
+
+// The status filter's value for the deleted customers instead of the live ones. Not a status
+// a customer can have, and only for people with customers.edit (the API says 403 otherwise).
+export const deletedFilter = "Deleted";
 
 // What the list can search, filter and sort by: the values GET /api/customers accepts
 // (CustomersController.List), which says 400 to anything else.
@@ -32,6 +38,14 @@ export const customerListSpec: ListSpec = {
   filters: { status: ["Active", "Inactive"] },
   paged: true,
   searchable: true,
+};
+
+// The same, with the Deleted filter: for someone who can restore. Without customers.edit the
+// page uses the spec above, so a ?status=Deleted typed by hand is read as "all", like any
+// other value the list doesn't know.
+export const customerListSpecWithDeleted: ListSpec = {
+  ...customerListSpec,
+  filters: { status: ["Active", "Inactive", deletedFilter] },
 };
 
 export interface CustomerList {
@@ -54,7 +68,11 @@ export interface Customer {
   updatedAt: string;
   // Who made the last change. Null if nobody did (a data migration).
   updatedByName: string | null;
-  // Sent back with a change or a delete, so two people can't overwrite each other (base64).
+  // Both null for a live customer. A deleted one comes from GET /api/customers/{id}/deleted.
+  deletedAt: string | null;
+  deletedByName: string | null;
+  // Sent back with a change, a delete or a restore, so two people can't overwrite each other
+  // (base64).
   rowVersion: string;
 }
 
@@ -133,6 +151,10 @@ export function customerQueryKey(tenantId: number | null, id: number) {
   return [...customersQueryKey, tenantId, "one", id] as const;
 }
 
+export function deletedCustomerQueryKey(tenantId: number | null, id: number) {
+  return [...customersQueryKey, tenantId, "deleted", id] as const;
+}
+
 // query: search, status, sort, dir and page, as apiQuery writes them.
 export function fetchCustomers(
   query: string,
@@ -146,6 +168,14 @@ export function fetchCustomer(
   signal: AbortSignal,
 ): Promise<Customer> {
   return apiGet<Customer>(`/api/customers/${id}`, { signal });
+}
+
+// A deleted customer (customers.edit). 404 for a live one, or one that isn't there.
+export function fetchDeletedCustomer(
+  id: number,
+  signal: AbortSignal,
+): Promise<Customer> {
+  return apiGet<Customer>(`/api/customers/${id}/deleted`, { signal });
 }
 
 export function createCustomer(fields: CustomerFields): Promise<Customer> {
@@ -162,6 +192,14 @@ export function updateCustomer(
 
 export function deleteCustomer(id: number, rowVersion: string): Promise<void> {
   return apiDelete<void>(`/api/customers/${id}`, { rowVersion });
+}
+
+// Brings a deleted customer back, as it was. 404: it isn't deleted (any more).
+export function restoreCustomer(
+  id: number,
+  rowVersion: string,
+): Promise<Customer> {
+  return apiPost<Customer>(`/api/customers/${id}/restore`, { rowVersion });
 }
 
 // A 400's field errors (ValidationProblemDetails.errors, keyed by field), first message each.

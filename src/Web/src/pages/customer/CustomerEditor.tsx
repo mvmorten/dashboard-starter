@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api";
 import { currentTenant } from "../../auth/me";
 import { useMe } from "../../auth/useMe";
@@ -32,10 +32,12 @@ import SelectField from "../../forms/SelectField";
 import TextAreaField from "../../forms/TextAreaField";
 import TextField from "../../forms/TextField";
 import { useForm } from "../../forms/useForm";
+import { useArrivalNotice } from "../../layout/useArrivalNotice";
 import { usePageTitle } from "../../layout/usePageTitle";
 import { useUnsavedChangesWarning } from "../../layout/useUnsavedChangesWarning";
 import type { CustomersNotice } from "../Customers";
 import DeleteSection from "./DeleteSection";
+import History from "./History";
 import MergePanel, { type MergeState } from "./MergePanel";
 import { listOf, messageOf } from "./messages";
 import { BackLink, LastChanged } from "./parts";
@@ -44,15 +46,24 @@ import { BackLink, LastChanged } from "./parts";
 // "deleted while you were editing", and delete.
 export default function CustomerEditor({
   initial,
+  notice: openingNotice = null,
 }: {
   initial: Customer | null;
+  // Something to say when the form opens that didn't come through navigation: "Customer
+  // restored." from the deleted customer's page, which is this same URL.
+  notice?: string | null;
 }) {
   usePageTitle(initial?.name ?? "New customer");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data: me } = useMe();
   const tenantId = me?.currentTenantId ?? null;
-  const arrivedWith = (useLocation().state as CustomersNotice | null)?.notice;
+  // "Customer added.", from the form that just created this customer. Read once and removed
+  // from history state, so a reload doesn't say it again; and only for the tenant it was
+  // written in.
+  const [arrived] = useArrivalNotice<CustomersNotice>();
+  const arrivedWith =
+    arrived && arrived.tenantId === tenantId ? arrived.notice : null;
 
   // The version these edits build on: what the form loaded, then whatever the last save (or
   // the last 409) returned. Null for a new customer.
@@ -66,7 +77,9 @@ export default function CustomerEditor({
   });
   const values = form.values;
   const [formError, setFormError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(arrivedWith ?? null);
+  const [notice, setNotice] = useState<string | null>(
+    openingNotice ?? arrivedWith,
+  );
   const [merge, setMerge] = useState<MergeState | null>(null);
   // Someone deleted it while this person was editing (the save said 404).
   const [gone, setGone] = useState(false);
@@ -99,6 +112,14 @@ export default function CustomerEditor({
     }
 
     void queryClient.invalidateQueries({ queryKey: customersQueryKey });
+  }
+
+  // After a delete, this customer's cached copy must go, not just be marked stale: the page
+  // keeps showing a copy it has (so a failed refetch can't take the form away), and opening
+  // the customer again from the Deleted list would show the form instead of "Deleted".
+  function forgetDeleted(id: number) {
+    queryClient.removeQueries({ queryKey: customerQueryKey(tenantId, id) });
+    refreshCached(null);
   }
 
   function showConflict(theirs: Customer, onDelete: boolean) {
@@ -260,7 +281,7 @@ export default function CustomerEditor({
     setPending("delete");
     try {
       await deleteCustomer(base.id, base.rowVersion);
-      refreshCached(null);
+      forgetDeleted(base.id);
       navigate("/customers", {
         state: {
           notice: `Deleted: ${base.name}`,
@@ -275,7 +296,7 @@ export default function CustomerEditor({
       }
 
       if (caught instanceof ApiError && caught.status === 404) {
-        refreshCached(null);
+        forgetDeleted(base.id);
         navigate("/customers", {
           state: {
             notice: `${base.name} was already deleted.`,
@@ -406,6 +427,8 @@ export default function CustomerEditor({
           </div>
         )}
       </form>
+
+      {base && !gone && <History customerId={base.id} />}
 
       {base && !gone && (
         <DeleteSection

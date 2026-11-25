@@ -2,6 +2,7 @@ import { NavLink } from "react-router";
 import { Permissions, useCan } from "../auth/permissions";
 import Logo from "./Logo";
 import {
+  AuditIcon,
   CloseIcon,
   CustomersIcon,
   DashboardIcon,
@@ -59,6 +60,14 @@ export default function Sidebar({ onClose }: SidebarProps) {
               <NavLink to="/members" className="nav-link" onClick={onClose}>
                 <MembersIcon />
                 Members
+              </NavLink>
+            </li>
+          )}
+          {can(Permissions.auditView) && (
+            <li>
+              <NavLink to="/audit" className="nav-link" onClick={onClose}>
+                <AuditIcon />
+                Audit log
               </NavLink>
             </li>
           )}

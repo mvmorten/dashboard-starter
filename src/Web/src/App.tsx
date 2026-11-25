@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router";
 import RequireSignIn from "./layout/RequireSignIn";
+import Audit from "./pages/Audit";
 import ChangePassword from "./pages/ChangePassword";
 import Customer from "./pages/Customer";
 import Customers from "./pages/Customers";
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/customers/new" element={<Customer />} />
         <Route path="/customers/:id" element={<Customer />} />
         <Route path="/members" element={<Members />} />
+        <Route path="/audit" element={<Audit />} />
         <Route path="/health" element={<Health />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="*" element={<NotFound />} />

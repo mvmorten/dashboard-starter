@@ -1,11 +1,13 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useState, type FormEvent } from "react";
+import { Link } from "react-router";
 import { ApiError } from "../api";
 import { Permissions, can } from "../auth/permissions";
 import { currentTenant } from "../auth/me";
 import { useMe } from "../auth/useMe";
 import {
   customerListSpec,
+  customerListSpecWithDeleted,
+  deletedFilter,
   type CustomerListItem,
 } from "../customers/customers";
 import { useCustomers } from "../customers/useCustomers";
@@ -33,6 +35,7 @@ import {
 import { Pager } from "../grid/Pager";
 import { useColumnChoices } from "../grid/useColumnChoices";
 import { useListState } from "../grid/useListState";
+import { useArrivalNotice } from "../layout/useArrivalNotice";
 import { useMediaQuery } from "../layout/useMediaQuery";
 import { usePageTitle } from "../layout/usePageTitle";
 import NoAccess from "./NoAccess";
@@ -106,6 +109,13 @@ const statusOptions = [
   { value: "Inactive", label: "Inactive" },
 ];
 
+// With customers.edit, the filter also finds the deleted customers, to restore them. It's in
+// the same select because it's the same kind of choice: which customers the list shows.
+const statusOptionsWithDeleted = [
+  ...statusOptions,
+  { value: deletedFilter, label: "Deleted" },
+];
+
 // The current tenant's customers: search, a status filter and a sort, 25 a page. A table on a
 // wide screen (sortable headers, a choice of columns) and cards on a phone (a sort select).
 // The whole view lives in the URL (?search=&status=&sort=&dir=&page=), so Back, a reload and
@@ -113,26 +123,14 @@ const statusOptions = [
 export default function Customers() {
   usePageTitle("Customers");
   const { data: me } = useMe();
-  const { state: view, show } = useListState(customerListSpec);
-  const customers = useCustomers(view);
+  const canEdit = can(me, Permissions.customersEdit);
+  const spec = canEdit ? customerListSpecWithDeleted : customerListSpec;
+  const { state: view, show } = useListState(spec);
+  const customers = useCustomers(view, spec);
   const { choices, toggle } = useColumnChoices("customers", columns);
   const wide = useMediaQuery("(min-width: 48rem)");
-  const location = useLocation();
-  const navigate = useNavigate();
-  // The notice is copied out of history state when the page opens, and the state is then
-  // removed from the history entry (the same URL, replaced, without it). History state
-  // survives a reload, so leaving it there would say "Deleted: ..." again on every reload.
-  const [arrivedWith, setArrivedWith] = useState(
-    () => location.state as CustomersNotice | null,
-  );
-  useEffect(() => {
-    if (location.state) {
-      void navigate(
-        { pathname: location.pathname, search: location.search },
-        { replace: true, state: null },
-      );
-    }
-  }, [location, navigate]);
+  // "Deleted: ..." from the form, shown once (layout/useArrivalNotice.ts).
+  const [arrivedWith, dropNotice] = useArrivalNotice<CustomersNotice>();
   const notice =
     arrivedWith && arrivedWith.tenantId === me?.currentTenantId
       ? arrivedWith.notice
@@ -159,7 +157,7 @@ export default function Customers() {
 
   function go(next: ListState) {
     // A new view: the notice was about the last one.
-    setArrivedWith(null);
+    dropNotice();
     show(next);
   }
 
@@ -176,7 +174,7 @@ export default function Customers() {
             The customers of {tenant?.name ?? "this tenant"}.
           </p>
         </div>
-        {can(me, Permissions.customersEdit) && (
+        {canEdit && (
           <Link to="/customers/new" className="button-link primary-link">
             New customer
           </Link>
@@ -196,7 +194,7 @@ export default function Customers() {
           <FilterSelect
             label="Status"
             value={status}
-            options={statusOptions}
+            options={canEdit ? statusOptionsWithDeleted : statusOptions}
             onChange={(value) => go(withFilter(view, "status", value))}
           />
           {wide ? (
@@ -209,15 +207,15 @@ export default function Customers() {
             <SortSelect
               columns={columns}
               sort={{ key: view.sort, dir: view.dir }}
-              firstDirOf={(key) => firstDirOf(customerListSpec, key)}
+              firstDirOf={(key) => firstDirOf(spec, key)}
               onSort={(key, dir) => go(withSort(view, key, dir))}
             />
           )}
-          {!isDefaultView(view, customerListSpec) && (
+          {!isDefaultView(view, spec) && (
             <button
               type="button"
               className="grid-clear"
-              onClick={() => go(defaultListState(customerListSpec))}
+              onClick={() => go(defaultListState(spec))}
             >
               Clear
             </button>
@@ -246,7 +244,7 @@ export default function Customers() {
                 rows={customers.data.items}
                 rowKey={(customer) => customer.id}
                 sort={{ key: view.sort, dir: view.dir }}
-                onSort={(key) => go(sortBy(view, key, customerListSpec))}
+                onSort={(key) => go(sortBy(view, key, spec))}
               />
             ) : (
               <CustomerCards
@@ -369,12 +367,15 @@ function CustomerCards({
   customers: CustomerListItem[];
   sort: string;
 }) {
+  // A deleted customer's card says when, whatever the sort: it's why it's in this list.
   const dateOf = (customer: CustomerListItem) =>
-    sort === "updated"
-      ? `Updated ${formatUtcDate(customer.updatedAt)}`
-      : sort === "created"
-        ? `Created ${formatUtcDate(customer.createdAt)}`
-        : null;
+    customer.deletedAt
+      ? `Deleted ${formatUtcDate(customer.deletedAt)}`
+      : sort === "updated"
+        ? `Updated ${formatUtcDate(customer.updatedAt)}`
+        : sort === "created"
+          ? `Created ${formatUtcDate(customer.createdAt)}`
+          : null;
 
   return (
     <ul className="card-list">

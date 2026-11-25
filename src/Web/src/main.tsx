@@ -15,6 +15,7 @@ import "./styles/lists.css";
 import "./styles/grid.css";
 import "./styles/members.css";
 import "./styles/customers.css";
+import "./styles/audit.css";
 
 const root = document.getElementById("root");
 if (!root) {
