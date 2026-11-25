@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using DashboardStarter.Api.Customers;
 using DashboardStarter.Api.Database;
+using DashboardStarter.Db.Audit;
 using DashboardStarter.Db.Tenants;
 using Dapper;
 using Microsoft.Data.SqlClient;
@@ -29,7 +32,7 @@ public sealed class SandboxStore
 
   /// <summary>
   /// Creates a sandbox in one transaction: the visitor, the tenants, the sample members, every
-  /// membership, and the sample customers. Returns null when <see cref="DemoOptions.MaxActiveSandboxes"/> are
+  /// membership, the sample customers, and their bit of history. Returns null when <see cref="DemoOptions.MaxActiveSandboxes"/> are
   /// already in use.
   /// </summary>
   public async Task<SandboxCreated?> CreateAsync(CancellationToken cancellationToken)
@@ -97,10 +100,12 @@ public sealed class SandboxStore
         connection, transaction, tenantIds[membership.TenantName], visitorId, membership, visitorId, markUsed: index == 0, cancellationToken);
     }
 
+    Dictionary<string, int> sampleIds = new(StringComparer.Ordinal);
     foreach (SandboxSampleMember sample in SandboxDefinition.SampleMembers)
     {
       (int sampleId, _) = await InsertUserAsync(
         connection, transaction, $"{sample.EmailName}-{suffix}@{SandboxDefinition.EmailDomain}", sample.DisplayName, expiresAt, signedIn: false, cancellationToken);
+      sampleIds[sample.EmailName] = sampleId;
       foreach (SandboxMembership membership in sample.Memberships)
       {
         await InsertMembershipAsync(
@@ -117,6 +122,14 @@ public sealed class SandboxStore
       int tenantId = tenantIds[tenantName];
       await TenantSession.SetAsync(connection, transaction, tenantId, readOnly: false, cancellationToken);
       await InsertCustomersAsync(connection, transaction, tenantId, customers, visitorId, cancellationToken);
+    }
+
+    // The audit log is tenant-owned too. Oldest first, so the entries' ids go up with their times.
+    foreach (SandboxHistoryEntry entry in SandboxDefinition.History.OrderByDescending(entry => entry.HoursAgo))
+    {
+      int tenantId = tenantIds[entry.TenantName];
+      await TenantSession.SetAsync(connection, transaction, tenantId, readOnly: false, cancellationToken);
+      await InsertHistoryAsync(connection, transaction, tenantId, entry, sampleIds, cancellationToken);
     }
 
     await transaction.CommitAsync(cancellationToken);
@@ -272,8 +285,10 @@ public sealed class SandboxStore
     CancellationToken cancellationToken)
   {
     const string sql = """
-      INSERT INTO dbo.Customers (TenantId, Name, Email, Phone, Status, Notes, CreatedBy, UpdatedBy)
-      SELECT @TenantId, c.Name, c.Email, c.Phone, c.Status, c.Notes, @CreatedBy, @CreatedBy
+      DECLARE @At datetime2 = DATEADD(day, -@AgeDays, SYSUTCDATETIME());
+
+      INSERT INTO dbo.Customers (TenantId, Name, Email, Phone, Status, Notes, CreatedAt, CreatedBy, UpdatedAt, UpdatedBy)
+      SELECT @TenantId, c.Name, c.Email, c.Phone, c.Status, c.Notes, @At, @CreatedBy, @At, @CreatedBy
       FROM OPENJSON(@Customers)
         WITH (
           Name nvarchar(200) '$.Name',
@@ -286,7 +301,95 @@ public sealed class SandboxStore
 
     await connection.ExecuteAsync(Command(
       sql,
-      new { TenantId = tenantId, CreatedBy = createdBy, Customers = JsonSerializer.Serialize(customers) },
+      new
+      {
+        TenantId = tenantId,
+        CreatedBy = createdBy,
+        AgeDays = SandboxDefinition.SampleDataAgeDays,
+        Customers = JsonSerializer.Serialize(customers),
+      },
+      transaction,
+      cancellationToken));
+  }
+
+  /// <summary>
+  /// One seeded audit entry, and the row it's about made to agree with it: a customer's
+  /// Created, Updated or Deleted columns, or a membership's Updated ones. This is the only
+  /// place an entry gets a time other than now, because it describes something that is
+  /// supposed to have happened before the sandbox existed.
+  /// </summary>
+  private static async Task InsertHistoryAsync(
+    SqlConnection connection,
+    SqlTransaction transaction,
+    int tenantId,
+    SandboxHistoryEntry entry,
+    Dictionary<string, int> sampleIds,
+    CancellationToken cancellationToken)
+  {
+    int userId = sampleIds[entry.ByEmailName];
+    bool isCustomer = entry.EntityType == AuditLog.Customer;
+    SandboxCustomer? customer = isCustomer
+      ? SandboxDefinition.Customers[entry.TenantName].Single(candidate => candidate.Name == entry.EntityName)
+      : null;
+
+    // No DeletedAt filter: an entry can be about the customer that starts out deleted.
+    const string customerIdSql = "SELECT Id FROM dbo.Customers WHERE TenantId = @TenantId AND Name = @Name;";
+    int entityId = customer is null
+      ? sampleIds[entry.EntityName]
+      : await connection.QuerySingleAsync<int>(Command(customerIdSql, new { TenantId = tenantId, customer.Name }, transaction, cancellationToken));
+
+    AuditChanges changes = new();
+    if (customer is not null && entry.Action == AuditLog.Created)
+    {
+      changes = CustomerAudit.Created(new ValidCustomer(customer.Name, customer.Email, customer.Phone, customer.Status, customer.Notes));
+    }
+
+    foreach (SandboxFieldChange change in entry.Changes)
+    {
+      changes.Add(change.Field, change.Old, change.New);
+    }
+
+    const string sql = """
+      DECLARE @At datetime2 = DATEADD(hour, -@HoursAgo, SYSUTCDATETIME());
+
+      INSERT INTO dbo.AuditLog (TenantId, OccurredAt, UserId, EntityType, EntityId, Action, Changes)
+      VALUES (@TenantId, @At, @UserId, @EntityType, @EntityId, @Action, @Changes);
+
+      IF @IsCustomer = 1
+      BEGIN
+        UPDATE dbo.Customers
+        SET
+          CreatedAt = CASE WHEN @Action = 'Created' THEN @At ELSE CreatedAt END,
+          CreatedBy = CASE WHEN @Action = 'Created' THEN @UserId ELSE CreatedBy END,
+          UpdatedAt = CASE WHEN @Action IN ('Created', 'Updated') THEN @At ELSE UpdatedAt END,
+          UpdatedBy = CASE WHEN @Action IN ('Created', 'Updated') THEN @UserId ELSE UpdatedBy END,
+          DeletedAt = CASE WHEN @Action = 'Deleted' THEN @At ELSE DeletedAt END,
+          DeletedBy = CASE WHEN @Action = 'Deleted' THEN @UserId ELSE DeletedBy END
+        WHERE Id = @EntityId
+          AND TenantId = @TenantId;
+      END
+      ELSE
+      BEGIN
+        UPDATE dbo.TenantUsers
+        SET UpdatedAt = @At, UpdatedBy = @UserId
+        WHERE TenantId = @TenantId
+          AND UserId = @EntityId;
+      END
+      """;
+
+    await connection.ExecuteAsync(Command(
+      sql,
+      new
+      {
+        TenantId = tenantId,
+        entry.HoursAgo,
+        UserId = userId,
+        entry.EntityType,
+        EntityId = entityId,
+        entry.Action,
+        Changes = changes.IsEmpty ? null : changes.ToJson(),
+        IsCustomer = isCustomer,
+      },
       transaction,
       cancellationToken));
   }

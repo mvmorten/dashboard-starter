@@ -45,6 +45,15 @@ customers_in() {
   done
   echo "$total"
 }
+# audit_in <tenant ids, comma-separated>: how many audit entries those tenants have, counted the
+# same way.
+audit_in() {
+  local total=0 id
+  for id in ${1//,/ }; do
+    total=$((total + $(sql "EXEC sp_set_session_context @key = N'TenantId', @value = $id; SELECT COUNT(*) FROM dbo.AuditLog;")))
+  done
+  echo "$total"
+}
 real_tenants() { sql "SELECT STRING_AGG(Id, ',') FROM dbo.Tenants WHERE IsDemo = 0;"; }
 # The sandbox suffix in an address: visitor-1a2b3c4d5e6f@demo.invalid -> 1a2b3c4d5e6f
 suffix_of() { echo "$1" | sed -n 's/^visitor-\([0-9a-f]*\)@demo\.invalid$/\1/p'; }
@@ -56,22 +65,22 @@ real_rows() {
     (SELECT COUNT(*) FROM dbo.TenantUsers AS tu JOIN dbo.Tenants AS t ON t.Id = tu.TenantId WHERE t.IsDemo = 0),
     (SELECT COUNT(*) FROM dbo.PasswordResetTokens AS p JOIN dbo.Users AS u ON u.Id = p.UserId WHERE u.IsDemo = 0),
     (SELECT CHECKSUM_AGG(CHECKSUM(Id, RoleId, Status)) FROM dbo.TenantUsers AS tu WHERE EXISTS (SELECT 1 FROM dbo.Tenants AS t WHERE t.Id = tu.TenantId AND t.IsDemo = 0));" | tr '\n' ' '
-  customers_in "$(real_tenants)"
+  echo "$(customers_in "$(real_tenants)") $(audit_in "$(real_tenants)")"
 }
-# rows_for <suffix> <tenant ids> -> the users, tenants, memberships and customers of one sandbox,
-# still in the database
+# rows_for <suffix> <tenant ids> -> the users, tenants, memberships, customers and audit entries
+# of one sandbox, still in the database
 rows_for() {
   echo "$(sql "SELECT
     (SELECT COUNT(*) FROM dbo.Users WHERE Email LIKE '%-$1@demo.invalid'),
     (SELECT COUNT(*) FROM dbo.Tenants WHERE Id IN ($2)),
-    (SELECT COUNT(*) FROM dbo.TenantUsers WHERE TenantId IN ($2));") $(customers_in "$2")"
+    (SELECT COUNT(*) FROM dbo.TenantUsers WHERE TenantId IN ($2));") $(customers_in "$2") $(audit_in "$2")"
 }
 wait_until_removed() {
   for attempt in $(seq 1 30); do
-    if [ "$(rows_for "$1" "$2")" = "0 0 0 0" ]; then return 0; fi
+    if [ "$(rows_for "$1" "$2")" = "0 0 0 0 0" ]; then return 0; fi
     sleep 0.5
   done
-  echo "Sandbox $1 is still there: $(rows_for "$1" "$2") (users tenants memberships customers)."
+  echo "Sandbox $1 is still there: $(rows_for "$1" "$2") (users tenants memberships customers audit entries)."
   exit 1
 }
 
@@ -87,7 +96,7 @@ a_demo=$(tenant_id Demo)
 a_other=$(tenant_id "Other Demo")
 expect "$(json .currentTenantId)" "$a_demo"
 expect "$(json .role)" Admin
-expect "$(json '.permissions | join(",")')" "customers.edit,customers.view,members.manage,members.view"
+expect "$(json '.permissions | join(",")')" "audit.view,customers.edit,customers.view,members.manage,members.view"
 # Exactly these rows, all IsDemo, none with a password, all expiring together.
 sql "SELECT u.Email, u.IsDemo, CASE WHEN u.PasswordHash IS NULL THEN 'none' ELSE 'set' END, t.Name, t.IsDemo, r.Name, tu.Status
   FROM dbo.TenantUsers AS tu
@@ -116,13 +125,31 @@ expect "$(sql "SELECT COUNT(*) FROM dbo.Users WHERE Email LIKE '%-$a@demo.invali
 load_members "$work/a"
 expect "$(jq -r '[.members[] | select(.lastSignInAt != null) | .email] | join(",")' "$work/members.json")" "$a_email"
 # Sample customers (SandboxDefinition.Customers): more than a page in each tenant, different in
-# each, made by the visitor.
-expect "$(customers_in "$a_demo"),$(customers_in "$a_other")" "30,27"
+# each, made by the visitor. Demo has one more row, already deleted (below).
+expect "$(customers_in "$a_demo"),$(customers_in "$a_other")" "31,27"
 expect "$(status "$work/a" "$BASE/api/customers")" 200
 expect "$(json .total),$(json '.items | length'),$(json '.items[0].name')" "30,25,100% Natural Soap Co."
 a_customer=$(json '.items[1].id')
 expect "$(sql "EXEC sp_set_session_context @key = N'TenantId', @value = $a_demo;
   SELECT COUNT(*) FROM dbo.Customers AS c JOIN dbo.Users AS u ON u.Id = c.CreatedBy WHERE u.Email = '$a_email';")" 30
+# A little history (SandboxDefinition.History), in Demo only: six entries by the sample members,
+# oldest first, each before now, and the customers they're about agree with them.
+expect "$(audit_in "$a_demo"),$(audit_in "$a_other")" "6,0"
+expect "$(sql "EXEC sp_set_session_context @key = N'TenantId', @value = $a_demo;
+  SELECT STRING_AGG(CONCAT(u.DisplayName, ' ', a.Action, ' ', a.EntityType), ', ') WITHIN GROUP (ORDER BY a.Id)
+  FROM dbo.AuditLog AS a JOIN dbo.Users AS u ON u.Id = a.UserId
+  WHERE a.OccurredAt < SYSUTCDATETIME();")" \
+  "Priya Shah Created Customer, Sam Rivera Deleted Customer, Sam Rivera Updated Customer, Priya Shah Updated Customer, Priya Shah Updated Customer, Sam Rivera Updated Member"
+expect "$(sql "EXEC sp_set_session_context @key = N'TenantId', @value = $a_demo;
+  SELECT COUNT(*) FROM dbo.AuditLog AS a
+  JOIN dbo.Customers AS c ON c.Id = a.EntityId AND a.EntityType = 'Customer'
+  WHERE (a.Action = 'Updated' AND c.UpdatedAt = a.OccurredAt AND c.UpdatedBy = a.UserId)
+    OR (a.Action = 'Deleted' AND c.DeletedAt = a.OccurredAt AND c.DeletedBy = a.UserId)
+    OR (a.Action = 'Created' AND c.CreatedAt = a.OccurredAt AND c.CreatedBy = a.UserId);")" 5
+expect "$(status "$work/a" "$BASE/api/audit")" 200
+expect "$(json .total),$(json '.items[0].entityName'),$(json '.items[0].userName')" "6,Jordan Blake,Sam Rivera"
+expect "$(status "$work/a" "$BASE/api/customers?status=Deleted")" 200
+expect "$(json .total),$(json '.items[0].name')" "1,Harbor Light Books (duplicate)"
 
 echo "2. A second click is a second sandbox, and neither can see the other"
 expect "$(start_demo "$work/b")" 204
@@ -151,6 +178,8 @@ expect "$(put "$work/a" "/api/customers/$a_customer" "{\"name\":\"Changed in A\"
 antiforgery "$work/a"
 expect "$(status "$work/a" -X DELETE -H "X-XSRF-TOKEN: $(xsrf "$work/a")" -H 'Content-Type: application/json' \
   -d "{\"rowVersion\":\"$(json .rowVersion)\"}" "$BASE/api/customers/$a_customer")" 204
+echo "   Each of those four changes is in the audit log (cleanup must remove these too)"
+expect "$(audit_in "$a_demo")" 10
 echo "   Still not their own role, like anyone else"
 expect "$(set_role "$work/a" "Demo Guest" Member)" 400
 echo "   Sandbox B is unchanged"
@@ -182,8 +211,8 @@ if $DB set-role --email "$a_email" --tenant "$a_demo" --role Member 2> "$work/re
 fi
 grep -q 'is a demo account' "$work/refused.txt"
 
-echo "6. An expired sandbox's session ends, and cleanup removes every row it owned (customers too, with"
-echo "   Row-Level Security on) and nothing else"
+echo "6. An expired sandbox's session ends, and cleanup removes every row it owned (customers and audit"
+echo "   entries too, with Row-Level Security on and the log append-only) and nothing else"
 before=$(real_rows)
 sql "UPDATE dbo.Users SET ExpiresAt = DATEADD(minute, -1, SYSUTCDATETIME()) WHERE Email LIKE '%-$a@demo.invalid';
   UPDATE dbo.Tenants SET ExpiresAt = DATEADD(minute, -1, SYSUTCDATETIME()) WHERE Id IN ($a_demo, $a_other);"
@@ -192,7 +221,7 @@ expect "$(status "$work/a" "$BASE/api/auth/me")" 401
 wait_until_removed "$a" "$a_demo, $a_other"
 expect "$(real_rows)" "$before"
 echo "   Sandbox B is still there"
-expect "$(rows_for "$b" "$b_demo, $b_other")" "5 2 8 57"
+expect "$(rows_for "$b" "$b_demo, $b_other")" "5 2 8 58 6"
 expect "$(status "$work/b" "$BASE/api/auth/me")" 200
 
 echo "7. Using a sandbox keeps it alive; signing out ends it"
@@ -218,7 +247,7 @@ holder=$!
 sleep 1
 expect "$(post "$work/c" /api/auth/sign-out)" 204
 sleep 5
-expect "$(rows_for "$c" "$c_demo, $c_other")" "5 2 8 57"
+expect "$(rows_for "$c" "$c_demo, $c_other")" "5 2 8 58 6"
 wait "$holder"
 wait_until_removed "$c" "$c_demo, $c_other"
 

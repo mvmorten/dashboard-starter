@@ -1,6 +1,8 @@
 using System;
 using System.Threading.Tasks;
+using System.Threading;
 using Dapper;
+using DashboardStarter.Db.Audit;
 using DashboardStarter.Db.Authorization;
 using Microsoft.Data.SqlClient;
 
@@ -26,6 +28,12 @@ namespace DashboardStarter.Db.Users;
 /// <para>
 /// The rule is about the permission, not a role name: a fork that adds an "Owner" role with
 /// members.manage gets the same protection without touching this code.
+/// </para>
+/// <para>
+/// Every change that lands writes an audit entry (<see cref="AuditLog"/>) in the same
+/// transaction: who gave whom which role, who disabled whom. A refused change is rolled back by
+/// the caller, entry included. AuditLog is tenant-owned, so the connection must be working in
+/// this tenant (SESSION_CONTEXT): a request's connection is, and the Db runner sets it.
 /// </para>
 /// </remarks>
 public static class Memberships
@@ -62,6 +70,7 @@ public static class Memberships
       sql,
       new { TenantId = tenantId, UserId = userId, RoleId = roleId, ActorUserId = actorUserId },
       roleId,
+      status: null,
       expectedRowVersion,
       actorUserId);
   }
@@ -93,6 +102,7 @@ public static class Memberships
       sql,
       new { TenantId = tenantId, UserId = userId, Status = active ? Active : Disabled, ActorUserId = actorUserId },
       roleId: null,
+      status: active ? Active : Disabled,
       expectedRowVersion,
       actorUserId);
   }
@@ -105,6 +115,7 @@ public static class Memberships
     string updateSql,
     object updateParameters,
     int? roleId,
+    string? status,
     byte[]? expectedRowVersion,
     int? actorUserId)
   {
@@ -132,18 +143,23 @@ public static class Memberships
       return new MembershipChange(MembershipChangeResult.UnknownRole, null);
     }
 
+    // The membership as it is now: its version, and the role and status the audit entry
+    // records as "old".
     const string currentSql = """
-      SELECT tu.RowVersion
+      SELECT tu.RowVersion, r.Name AS RoleName, tu.Status
       FROM dbo.TenantUsers AS tu
+      INNER JOIN dbo.Roles AS r ON r.Id = tu.RoleId
       WHERE tu.TenantId = @TenantId
         AND tu.UserId = @UserId;
       """;
-    byte[]? currentRowVersion = await connection.QuerySingleOrDefaultAsync<byte[]?>(
+    CurrentMembership? current = await connection.QuerySingleOrDefaultAsync<CurrentMembership>(
       currentSql, new { TenantId = tenantId, UserId = userId }, transaction);
-    if (currentRowVersion is null)
+    if (current is null)
     {
       return new MembershipChange(MembershipChangeResult.NotFound, null);
     }
+
+    byte[] currentRowVersion = current.RowVersion;
 
     if (expectedRowVersion is not null && !expectedRowVersion.AsSpan().SequenceEqual(currentRowVersion))
     {
@@ -165,6 +181,25 @@ public static class Memberships
     if (couldManage && await CountManagersAsync(connection, transaction, tenantId) == 0)
     {
       return new MembershipChange(MembershipChangeResult.LastManager, null);
+    }
+
+    // The audit entry, in this same transaction. Only role and status are recorded (the
+    // allow-list), and setting a role or status the member already has records nothing.
+    AuditChanges changes = new();
+    if (roleId is not null)
+    {
+      changes.Add("role", current.RoleName, await RoleNameAsync(connection, transaction, roleId.Value));
+    }
+
+    if (status is not null)
+    {
+      changes.Add("status", current.Status, status);
+    }
+
+    if (!changes.IsEmpty)
+    {
+      await AuditLog.WriteAsync(
+        connection, transaction, tenantId, actorUserId, AuditLog.Member, userId, AuditLog.Updated, changes, CancellationToken.None);
     }
 
     return new MembershipChange(MembershipChangeResult.Changed, newRowVersion);
@@ -209,6 +244,13 @@ public static class Memberships
     const string sql = "SELECT CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.Roles WHERE Id = @Id) THEN 1 ELSE 0 END AS bit);";
     return await connection.ExecuteScalarAsync<bool>(sql, new { Id = roleId }, transaction);
   }
+
+  private static async Task<string> RoleNameAsync(SqlConnection connection, SqlTransaction transaction, int roleId)
+  {
+    return await connection.QuerySingleAsync<string>("SELECT Name FROM dbo.Roles WHERE Id = @Id;", new { Id = roleId }, transaction);
+  }
+
+  private sealed record CurrentMembership(byte[] RowVersion, string RoleName, string Status);
 }
 
 public enum MembershipChangeResult

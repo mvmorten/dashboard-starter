@@ -4,9 +4,10 @@
 # one tenant's context can't read or write another tenant's rows. Run as the API's own login and
 # as the admin, because neither is exempt.
 #
-# CI runs this (.github/workflows/ci.yml) after customer-checks.sh, which leaves customers in
-# Acme Corporation and Globex Industries (including a soft-deleted one in Acme). Locally, from the
-# repo root, after the same (Git Bash: export MSYS_NO_PATHCONV=1 first):
+# CI runs this (.github/workflows/ci.yml) after customer-checks.sh and audit-checks.sh, which
+# leave customers and audit entries in Acme Corporation and Globex Industries (including a
+# soft-deleted customer in Acme). Locally, from the repo root, after the same (Git Bash: export
+# MSYS_NO_PATHCONV=1 first):
 #
 #   s="docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -C -b -I -h -1 -W -d DashboardStarter"
 #   SQLCMD="$s -U sa -P LocalDevOnly!ChangeMe1" SQLCMD_APP="$s -U dashboard_app -P AppDevOnly!ChangeMe1" \
@@ -82,6 +83,11 @@ echo "   Acme $acme_rows, Globex $globex_rows"
 [ "$acme_rows" -gt 0 ] && [ "$globex_rows" -gt 0 ]
 echo "   Soft-deleted rows are still visible to their own tenant: RLS doesn't hide them, the queries do"
 [ "$(run admin "$(as_tenant "$acme") SELECT COUNT(*) FROM dbo.Customers WHERE DeletedAt IS NOT NULL;")" -gt 0 ]
+echo "   And audit entries in both"
+acme_audit=$(run admin "$(as_tenant "$acme") SELECT COUNT(*) FROM dbo.AuditLog;")
+globex_audit=$(run admin "$(as_tenant "$globex") SELECT COUNT(*) FROM dbo.AuditLog;")
+echo "   Acme $acme_audit, Globex $globex_audit"
+[ "$acme_audit" -gt 0 ] && [ "$globex_audit" -gt 0 ]
 
 for who in app admin; do
   echo "3. As the $who login, with no tenant set: no rows, no inserts, no updates (fails closed)"
@@ -99,7 +105,21 @@ for who in app admin; do
   refused $who "$(as_tenant "$acme") UPDATE TOP (1) dbo.Customers SET TenantId = $globex WHERE TenantId = $acme;" "block predicate"
   expect "$(run $who "$(as_tenant "$acme") BEGIN TRAN; UPDATE dbo.Customers SET Notes = N'touched' WHERE TenantId = $globex; SELECT @@ROWCOUNT; ROLLBACK;")" 0
   expect "$(run $who "$(as_tenant "$acme") BEGIN TRAN; DELETE FROM dbo.Customers WHERE TenantId = $globex; SELECT @@ROWCOUNT; ROLLBACK;")" 0
+
+  echo "   The audit log, the same: no tenant, no entries; in Acme, none of Globex's, by read or by insert"
+  entry="(TenantId, EntityType, EntityId, Action) VALUES"
+  expect "$(run $who "SELECT COUNT(*) FROM dbo.AuditLog;")" 0
+  expect "$(run $who "SELECT COUNT(*) FROM dbo.AuditLog WHERE TenantId = $acme;")" 0
+  refused $who "INSERT INTO dbo.AuditLog $entry ($acme, 'Customer', 1, 'Created');" "block predicate"
+  expect "$(run $who "$(as_tenant "$acme") SELECT COUNT(*) FROM dbo.AuditLog;")" "$acme_audit"
+  expect "$(run $who "$(as_tenant "$acme") SELECT COUNT(*) FROM dbo.AuditLog WHERE TenantId <> $acme;")" 0
+  refused $who "$(as_tenant "$acme") INSERT INTO dbo.AuditLog $entry ($globex, 'Customer', 1, 'Created');" "block predicate"
 done
+# Updates and deletes of entries: the API's login is denied both outright (audit-checks.sh), so
+# only the admin gets as far as Row-Level Security, which shows it none of Globex's entries.
+expect "$(run admin "$(as_tenant "$acme") BEGIN TRAN; UPDATE dbo.AuditLog SET Action = 'Deleted' WHERE TenantId = $globex; SELECT @@ROWCOUNT; ROLLBACK;")" 0
+expect "$(run admin "$(as_tenant "$acme") BEGIN TRAN; DELETE FROM dbo.AuditLog WHERE TenantId = $globex; SELECT @@ROWCOUNT; ROLLBACK;")" 0
+refused admin "$(as_tenant "$acme") UPDATE TOP (1) dbo.AuditLog SET TenantId = $globex WHERE TenantId = $acme;" "block predicate"
 
 echo "5. The predicate itself: true only for the tenant that's set"
 expect "$(run admin "SELECT COUNT(*) FROM Security.fn_TenantAccessPredicate($acme);")" 0
@@ -108,6 +128,7 @@ expect "$(run admin "$(as_tenant "$acme") SELECT COUNT(*) FROM Security.fn_Tenan
 
 echo "6. Globex's rows are all still there"
 expect "$(run admin "$(as_tenant "$globex") SELECT COUNT(*) FROM dbo.Customers;")" "$globex_rows"
+expect "$(run admin "$(as_tenant "$globex") SELECT COUNT(*) FROM dbo.AuditLog;")" "$globex_audit"
 
 echo "7. The API's login can't switch the policy off"
 refused app "ALTER SECURITY POLICY Security.TenantAccessPolicy WITH (STATE = OFF);" "permission"

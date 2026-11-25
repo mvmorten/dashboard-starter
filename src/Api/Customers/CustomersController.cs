@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using DashboardStarter.Api.Audit;
 using DashboardStarter.Api.Auth;
 using DashboardStarter.Api.Demo;
+using DashboardStarter.Db.Audit;
 using DashboardStarter.Db.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -15,7 +17,8 @@ namespace DashboardStarter.Api.Customers;
 
 /// <summary>
 /// The CRUD module's example: the current tenant's customers. Reading needs customers.view;
-/// adding, changing, and deleting need customers.edit. Always the session's tenant.
+/// adding, changing, deleting, and restoring need customers.edit, and so does seeing the deleted
+/// ones. Always the session's tenant.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -28,18 +31,29 @@ namespace DashboardStarter.Api.Customers;
 /// <b>Validation</b> is <see cref="CustomerValidation"/>: 400 with ValidationProblemDetails,
 /// errors keyed by field name.
 /// </para>
+/// <para>
+/// <b>The audit log.</b> Every change here writes an entry in the same transaction
+/// (<see cref="CustomerStore"/>). A refused request (400, 403, 404, 409, 422) writes none, and
+/// neither does a save that changes nothing.
+/// </para>
 /// </remarks>
 [ApiController]
 [Route("api/customers")]
 public sealed class CustomersController : ControllerBase
 {
+  /// <summary>The status filter's value for the deleted customers. Not a status a customer can have.</summary>
+  public const string DeletedFilter = "Deleted";
+
   private readonly CustomerStore _customers;
+  private readonly AuditStore _audit;
   private readonly DemoOptions _demoOptions;
   private readonly ILogger<CustomersController> _logger;
 
-  public CustomersController(CustomerStore customers, IOptions<DemoOptions> demoOptions, ILogger<CustomersController> logger)
+  public CustomersController(
+    CustomerStore customers, AuditStore audit, IOptions<DemoOptions> demoOptions, ILogger<CustomersController> logger)
   {
     _customers = customers;
+    _audit = audit;
     _demoOptions = demoOptions.Value;
     _logger = logger;
   }
@@ -47,7 +61,8 @@ public sealed class CustomersController : ControllerBase
   /// <summary>
   /// One page (25) of customers.
   /// <paramref name="search"/>: the start of a name or email.
-  /// <paramref name="status"/>: Active or Inactive; none for both.
+  /// <paramref name="status"/>: Active or Inactive; none for both. Or Deleted, for the deleted
+  /// customers instead of the live ones: that needs customers.edit, and is a 403 without it.
   /// <paramref name="sort"/>: name (the default), email, status, updated or created.
   /// <paramref name="dir"/>: asc (the default) or desc.
   /// </summary>
@@ -79,9 +94,15 @@ public sealed class CustomersController : ControllerBase
       errors["search"] = [$"Use {CustomerValidation.EmailMaxLength} characters or fewer."];
     }
 
-    if (status is not (null or CustomerValidation.Active or CustomerValidation.Inactive))
+    // An empty value is the same as leaving it out.
+    if (string.IsNullOrEmpty(status))
     {
-      errors["status"] = [$"Use {CustomerValidation.Active} or {CustomerValidation.Inactive}, or leave it out for both."];
+      status = null;
+    }
+
+    if (status is not (null or CustomerValidation.Active or CustomerValidation.Inactive or DeletedFilter))
+    {
+      errors["status"] = [$"Use {CustomerValidation.Active}, {CustomerValidation.Inactive} or {DeletedFilter}, or leave it out for the live ones."];
     }
 
     sort ??= "name";
@@ -101,7 +122,15 @@ public sealed class CustomersController : ControllerBase
       return InvalidFields(errors);
     }
 
-    CustomerListQuery query = new(trimmed, status, sort, dir == "desc", page);
+    // Deleted customers are for the people who can restore them. The policy above only asked
+    // for customers.view, so this one value checks the other permission itself.
+    bool deleted = status == DeletedFilter;
+    if (deleted && !CanEdit())
+    {
+      return Forbid();
+    }
+
+    CustomerListQuery query = new(trimmed, deleted ? null : status, deleted, sort, dir == "desc", page);
     return Ok(await _customers.ListAsync(CurrentTenantId(), query, cancellationToken));
   }
 
@@ -116,6 +145,55 @@ public sealed class CustomersController : ControllerBase
     }
 
     return Ok(customer);
+  }
+
+  /// <summary>
+  /// A deleted customer, with who deleted it and when, and the RowVersion a restore sends back.
+  /// A live customer isn't here (404): this endpoint is only about deleted ones, so
+  /// <see cref="Get"/> can keep saying a deleted customer doesn't exist.
+  /// </summary>
+  [HttpGet("{id:int}/deleted")]
+  [Authorize(Policy = Permissions.CustomersEdit)]
+  public async Task<ActionResult<CustomerResponse>> GetDeleted(int id, CancellationToken cancellationToken)
+  {
+    CustomerResponse? customer = await _customers.GetDeletedAsync(CurrentTenantId(), id, cancellationToken);
+    if (customer is null)
+    {
+      return CustomerNotFound();
+    }
+
+    return Ok(customer);
+  }
+
+  /// <summary>
+  /// The customer's audit entries, newest first, 25 a page. It shows no more than the
+  /// customer's own fields and who changed them, so customers.view is enough for a live customer.
+  /// </summary>
+  /// <remarks>
+  /// A deleted customer has a history too (it's what you read before restoring it), but its
+  /// entries hold its name, email and notes, and deleted customers are only for people with
+  /// customers.edit. Without it, a deleted customer's history is a 404, like the customer.
+  /// </remarks>
+  [HttpGet("{id:int}/history")]
+  [Authorize(Policy = Permissions.CustomersView)]
+  public async Task<ActionResult<AuditListResponse>> History(int id, [FromQuery] int page = 1, CancellationToken cancellationToken = default)
+  {
+    if (page < 1)
+    {
+      return InvalidFields(new Dictionary<string, string[]> { ["page"] = ["Pages start at 1."] });
+    }
+
+    int tenantId = CurrentTenantId();
+    bool found = CanEdit()
+      ? await _customers.ExistsIncludingDeletedAsync(tenantId, id, cancellationToken)
+      : await _customers.GetAsync(tenantId, id, cancellationToken) is not null;
+    if (!found)
+    {
+      return CustomerNotFound();
+    }
+
+    AuditQuery query = new(AuditLog.Customer, id, UserId: null, page);
+    return Ok(await _audit.ListAsync(tenantId, query, cancellationToken));
   }
 
   [HttpPost]
@@ -173,6 +251,20 @@ public sealed class CustomersController : ControllerBase
     return Answer(change, "deleted", id, tenantId, userId, _ => NoContent());
   }
 
+  /// <summary>
+  /// Brings a deleted customer back, as it was. 404 if it isn't deleted (or isn't there), so a
+  /// second restore is a 404; 409 with the current record if it changed since it was loaded.
+  /// </summary>
+  [HttpPost("{id:int}/restore")]
+  [Authorize(Policy = Permissions.CustomersEdit)]
+  public async Task<ActionResult<CustomerResponse>> Restore(int id, RestoreCustomerRequest request, CancellationToken cancellationToken)
+  {
+    int tenantId = CurrentTenantId();
+    int userId = CurrentUserId();
+    CustomerChange change = await _customers.RestoreAsync(tenantId, userId, id, request.RowVersion, cancellationToken);
+    return Answer(change, "restored", id, tenantId, userId, customer => Ok(customer));
+  }
+
   private ActionResult Answer(
     CustomerChange change, string action, int id, int tenantId, int userId, Func<CustomerResponse?, ActionResult> changed)
   {
@@ -180,6 +272,10 @@ public sealed class CustomersController : ControllerBase
     {
       case CustomerChangeResult.Changed:
         _logger.LogInformation("User {UserId} {Action} customer {CustomerId} in tenant {TenantId}.", userId, action, id, tenantId);
+        return changed(change.Customer);
+      case CustomerChangeResult.Unchanged:
+        // The values the customer already has: nothing was written, and the answer is the
+        // customer as it is, with the same RowVersion.
         return changed(change.Customer);
       case CustomerChangeResult.NotFound:
         return CustomerNotFound();
@@ -222,6 +318,11 @@ public sealed class CustomersController : ControllerBase
       Status = StatusCodes.Status400BadRequest,
       Title = "Some fields need another look",
     });
+  }
+
+  private bool CanEdit()
+  {
+    return SessionPermissions.Get(HttpContext).Contains(Permissions.CustomersEdit);
   }
 
   // The permission policies only pass with a current tenant (no tenant, no permissions), so
